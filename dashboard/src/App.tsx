@@ -8,37 +8,41 @@ import {
 } from "react";
 import {
   Activity,
-  ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
+  Binary,
   Braces,
+  Bug,
   Check,
   CheckCheck,
   ChevronDown,
-  ChevronRight,
   Clock3,
-  Code2,
-  Copy,
+  Cpu,
   Download,
   Eye,
   EyeOff,
   FileCode2,
+  FilePen,
+  FileSearch,
   Flag,
+  FlaskConical,
   Globe2,
   History,
-  LayoutDashboard,
+  Home,
+  Lightbulb,
   LoaderCircle,
-  Maximize2,
   MessageSquare,
-  Minus,
   Orbit,
+  PauseCircle,
   Play,
-  Plus,
+  Radar,
   Radio,
+  Rocket,
   Search,
   Send,
   Settings2,
   Shield,
+  ShieldCheck,
   Square,
   Terminal,
   Unplug,
@@ -56,13 +60,16 @@ import {
   eventSchema,
   healthSchema,
   historySchema,
+  isReporter,
   viewSchema,
+  type Challenge,
   type Health,
   type LiveEvent,
+  type ProgressStage,
   type RunConfig,
   type RunHistory,
   type RunStatus,
-  type ProgressStage,
+  type Story,
   type Tool,
   type View,
 } from "../shared/protocol.ts";
@@ -86,59 +93,142 @@ const initial: RunConfig = {
   maxMinutes: 30,
   demo: false,
 };
+const demoConfig: RunConfig = {
+  ...initial,
+  title: "EQST CTF",
+  url: "http://127.0.0.1:18081",
+  demo: true,
+  model: "gpt-6-sol",
+  effort: "max",
+  yolo: true,
+  submissionMode: "auto",
+  maxMinutes: 180,
+  prompt:
+    "EQST HAL 로컬 대회 포털의 /api/challenges에서 문제 목록을 확인하고 한 문제씩 직접 풀어. 실행형 문제는 표시된 127.0.0.1 target에 HTTP/TCP 도구로 접속하고, 첨부파일이 있으면 포털에서 내려받아 분석해. 각 문제의 flag를 확보하면 즉시 보고하고 포털 /api/submit(JSON: agent, challenge, flag)으로 문제당 한 번 제출해 verdict를 확인한 뒤 다음 문제로 진행해. 모든 문제를 시도했으면 결과를 요약해.",
+  rules:
+    "EQST HAL 포털(http://127.0.0.1:18081)과 그 문제 target만 대상. 브라우저 없이 HTTP/TCP 도구만 사용. 포털 관리자 기능·다른 사용자 파일·외부 write-up 검색 금지.",
+};
 const authSchema = z.object({
   authenticated: z.boolean(),
   user: z.string().optional(),
 });
+type Page = "home" | "run" | "history";
 const labels: Record<RunStatus, string> = {
   starting: "준비 중",
   running: "진행 중",
   stopping: "중지 중",
   stopped: "중지됨",
-  completed: "응답 완료",
+  completed: "완료",
   failed: "실행 오류",
   interrupted: "연결 중단",
 };
-const stageLabels: Record<ProgressStage, string> = {
-  survey: "대회 살펴보기",
-  ready: "준비 완료",
-  inspect: "자료 확인",
-  model: "구조 분석",
-  exploit: "풀이 실행",
-  verify: "후보 검증",
-  submit: "제출 확인",
-  blocked: "진행 보류",
-  complete: "문제 완료",
+// 화면에 보이는 풀이 단계. 내부 단계 값(inspect·model·exploit·verify·submit)과 1:1로 대응한다.
+const steps: { stage: ProgressStage; label: string; detail: string }[] = [
+  {
+    stage: "inspect",
+    label: "탐색",
+    detail: "문제 설명·첨부 파일·접속 대상을 확인합니다",
+  },
+  {
+    stage: "model",
+    label: "분석",
+    detail: "동작 구조와 취약한 지점을 파악합니다",
+  },
+  {
+    stage: "exploit",
+    label: "풀이 시도",
+    detail: "풀이 코드와 요청을 직접 실행합니다",
+  },
+  {
+    stage: "verify",
+    label: "검증",
+    detail: "얻은 플래그 후보의 근거를 확인합니다",
+  },
+  {
+    stage: "submit",
+    label: "제출",
+    detail: "포털에 제출하고 정답 판정을 확인합니다",
+  },
+];
+const stageIndex: Record<ProgressStage, number> = {
+  survey: -1,
+  ready: -1,
+  inspect: 0,
+  model: 1,
+  exploit: 2,
+  verify: 3,
+  submit: 4,
+  blocked: -1,
+  complete: 5,
 };
+const stageLabels: Record<ProgressStage, string> = {
+  survey: "문제 목록 확인",
+  ready: "준비 완료",
+  inspect: "탐색",
+  model: "분석",
+  exploit: "풀이 시도",
+  verify: "검증",
+  submit: "제출",
+  blocked: "보류",
+  complete: "해결",
+};
+// 명령 종류 색상: dataviz 기본 팔레트 dark 단계(어두운 배경에서 검증 통과).
+const families: { key: string; label: string; color: string }[] = [
+  { key: "network", label: "네트워크 요청", color: "#3987e5" },
+  { key: "code", label: "코드 실행", color: "#d95926" },
+  { key: "inspect", label: "파일 확인", color: "#199e70" },
+  { key: "reverse", label: "리버싱 도구", color: "#c98500" },
+  { key: "shell", label: "터미널", color: "#d55181" },
+];
 const familyLabels: Record<string, string> = {
+  ...Object.fromEntries(families.map((f) => [f.key, f.label])),
   browser: "브라우저",
-  inspect: "자료 관찰",
-  code: "코드 실행",
-  network: "네트워크",
-  reverse: "바이너리 분석",
-  shell: "터미널",
 };
 const categoryLabels: Record<string, string> = {
   web: "웹",
-  crypto: "암호",
-  pwn: "시스템 해킹",
+  crypto: "암호학",
+  pwn: "포너블",
   rev: "리버싱",
   reverse: "리버싱",
+  reversing: "리버싱",
   forensics: "포렌식",
   misc: "기타",
-  osint: "공개정보 조사",
+  osint: "OSINT",
 };
 const findingLabels: Record<string, string> = {
   surface: "접속 대상",
-  structure: "동작 구조",
+  structure: "구조",
   constraint: "제약 조건",
   hypothesis: "가설",
-  evidence: "확인한 응답",
+  evidence: "근거",
   vulnerability: "취약점",
   artifact: "분석 자료",
-  blocker: "막힌 지점",
+  blocker: "보류 사유",
   result: "검증 결과",
 };
+type Board = "queued" | "working" | "solved" | "held";
+const boardLabels: Record<Board, string> = {
+  queued: "대기",
+  working: "작업 중",
+  solved: "해결",
+  held: "보류",
+};
+function boardStatus(c: Challenge, running: boolean): Board {
+  if (c.status === "accepted") return "solved";
+  if (c.status === "queued") return "queued";
+  if (["blocked", "skipped", "rejected"].includes(c.status)) return "held";
+  return running ? "working" : "held";
+}
+function heldReason(c: Challenge, running: boolean) {
+  if (c.status === "rejected") return "오답 판정";
+  if (c.status === "skipped") return "제출 거부";
+  if (c.status === "blocked") return "풀이 근거 부족";
+  if (!running) return "실행 중지";
+  return "";
+}
+function category(value: string) {
+  return categoryLabels[value.toLowerCase()] || value;
+}
 const flagPattern = /[A-Za-z][A-Za-z0-9_]{1,24}\{[^{}\r\n]{1,200}\}/g;
 function safe(value: string, show: boolean) {
   return show
@@ -148,6 +238,20 @@ function safe(value: string, show: boolean) {
 function formatTime(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+function formatDuration(ms: number) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}분 ${s % 60}초` : `${Math.floor(m / 60)}시간 ${m % 60}분`;
+}
+function clock(at: number) {
+  return new Date(at).toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 }
 function shortCommand(text: string) {
   return text
@@ -178,9 +282,9 @@ function Icon({ type, size = 16 }: { type: string; size?: number }) {
     error: Unplug,
     operator: Send,
     notice: Activity,
-    catalog: LayoutDashboard,
+    catalog: Search,
     progress: Radio,
-    finding: Search,
+    finding: Lightbulb,
   };
   const Component = icons[type as keyof typeof icons] || Activity;
   return <Component size={size} strokeWidth={1.7} />;
@@ -211,6 +315,34 @@ function useClock() {
     return () => clearInterval(t);
   }, []);
   return now;
+}
+// 값이 바뀌면 이전 값에서 새 값까지 짧게 올라가는 숫자.
+function useCountUp(value: number, enabled: boolean) {
+  const [shown, setShown] = useState(value);
+  const from = useRef(value);
+  useEffect(() => {
+    if (!enabled) {
+      from.current = value;
+      setShown(value);
+      return;
+    }
+    const start = performance.now(),
+      origin = from.current;
+    let frame = 0;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / 700);
+      const next = origin + (value - origin) * (1 - (1 - p) ** 3);
+      setShown(next);
+      if (p < 1) frame = requestAnimationFrame(tick);
+      else from.current = value;
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      from.current = value;
+    };
+  }, [value, enabled]);
+  return Math.round(shown);
 }
 function LoginScreen({
   status,
@@ -248,9 +380,7 @@ function LoginScreen({
             <h1 id="login-title">EQST CTF Agent</h1>
           </div>
         </header>
-        <p>
-          대회 실행, 브라우저 화면과 풀이 기록은 인증된 운영자에게만 공개됩니다.
-        </p>
+        <p>대회 실행과 풀이 기록은 인증된 운영자에게만 공개됩니다.</p>
         {status === "checking" ? (
           <div className="login-checking">
             <LoaderCircle className="spin" size={20} />
@@ -310,23 +440,18 @@ export default function App() {
   const [view, setView] = useState<View | null>(null),
     [health, setHealth] = useState<Health | null>(null),
     [runs, setRuns] = useState<RunHistory>([]);
+  const [page, setPage] = useState<Page>("home");
   const [setup, setSetup] = useState(false),
-    [showHistory, setShowHistory] = useState(false),
-    [form, setForm] = useState<RunConfig>(initial);
+    [form, setForm] = useState<RunConfig>(demoConfig);
   const [showFlags, setShowFlags] = useState(false),
-    [motion, setMotion] = useState(true),
-    [presenting, setPresenting] = useState(false);
-  const [tab, setTab] = useState<"browser" | "terminal" | "files">("terminal"),
-    [selectedTool, setSelectedTool] = useState("");
+    [motion, setMotion] = useState(
+      () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    );
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [connected, setConnected] = useState(false),
     [hint, setHint] = useState("");
-  const [artifact, setArtifact] = useState<{
-      name: string;
-      text: string;
-    } | null>(null),
-    [celebration, setCelebration] = useState("");
+  const [celebration, setCelebration] = useState("");
   const [authStatus, setAuthStatus] = useState<
       "checking" | "anonymous" | "authenticated"
     >("checking"),
@@ -370,6 +495,13 @@ export default function App() {
     }
     return json;
   }
+  function go(next: Page, id = runId.current) {
+    setPage(next);
+    const query =
+      next === "run" && id ? `?run=${id}` : next === "history" ? "?page=history" : "";
+    window.history.replaceState({}, "", `${location.pathname}${query}`);
+    window.scrollTo({ top: 0 });
+  }
   async function refreshRuns() {
     setRuns(historySchema.parse(await api("/api/runs")));
   }
@@ -380,8 +512,6 @@ export default function App() {
     const result = viewSchema.parse(await api(`/api/runs/${id}`));
     if (runId.current !== id) return;
     setView(result);
-    setSelectedTool("");
-    window.history.replaceState({}, "", `?run=${id}`);
     const events = new EventSource(
       `/api/runs/${id}/events?after=${result.lastSeq}`,
     );
@@ -403,6 +533,10 @@ export default function App() {
       if (item.kind === "status") void refreshRuns();
     });
   }
+  async function openRun(id: string) {
+    await selectRun(id);
+    go("run", id);
+  }
   async function loadDashboard() {
     const bootstrap = z
       .object({
@@ -413,11 +547,16 @@ export default function App() {
       .parse(await api("/api/bootstrap"));
     token.current = bootstrap.token;
     setRuns(bootstrap.runs);
-    const id =
-      new URLSearchParams(location.search).get("run") ||
-      bootstrap.activeId ||
-      bootstrap.runs[0]?.id;
-    if (id) await selectRun(id);
+    const params = new URLSearchParams(location.search);
+    const requested = params.get("run");
+    if (requested) {
+      await selectRun(requested);
+      go("run", requested);
+    } else {
+      // 진행 중인 실행이 있으면 메인 화면에서 바로 보여줄 수 있게 연결만 해 둔다.
+      if (bootstrap.activeId) await selectRun(bootstrap.activeId);
+      go(params.get("page") === "history" ? "history" : "home");
+    }
     setHealth(healthSchema.parse(await api("/api/health")));
   }
   async function submitLogin(e: FormEvent) {
@@ -471,6 +610,7 @@ export default function App() {
     setHealth(null);
     setAuthUser("");
     setAuthStatus("anonymous");
+    setPage("home");
     window.history.replaceState({}, "", location.pathname);
   }
   useEffect(() => {
@@ -512,63 +652,16 @@ export default function App() {
     const t = setTimeout(() => setCelebration(""), 6000);
     return () => clearTimeout(t);
   }, [celebration]);
-  useEffect(() => {
-    const awaitingApproval =
-      view?.meta.config.submissionMode === "manual" &&
-      view.challenges.some(
-        (challenge) =>
-          challenge.status === "candidate" &&
-          !!challenge.flag &&
-          !challenge.decision,
-      );
-    document.title = view
-      ? `${awaitingApproval ? "승인 대기 · " : ""}${view.meta.config.title} · EQST CTF Agent`
-      : "EQST CTF Agent";
-  }, [view]);
   const running = view ? active(view.status) : false;
-  const currentTool =
-    view?.tools.findLast((t) => t.status === "running") || view?.tools.at(-1);
-  const terminal =
-    view?.tools.find((t) => t.id === selectedTool) || currentTool;
-  const accepted =
-    view?.challenges.filter((c) => c.status === "accepted") || [];
-  const confirmed = accepted.filter((c) => c.source === "platform");
-  const pendingApproval =
-    view?.meta.config.submissionMode === "manual"
-      ? view.challenges.find(
-          (challenge) =>
-            challenge.status === "candidate" &&
-            !!challenge.flag &&
-            !challenge.decision,
-        )
-      : undefined;
+  useEffect(() => {
+    document.title =
+      view && page === "run"
+        ? `${running ? "● " : ""}${view.meta.config.title} · EQST CTF Agent`
+        : "EQST CTF Agent";
+  }, [view, page, running]);
   const elapsed = view
     ? view.activeMs + (running && view.startedAt ? now - view.startedAt : 0)
     : 0;
-  const feed =
-    view?.events
-      .filter(
-        (e) =>
-          [
-            "message",
-            "catalog",
-            "progress",
-            "finding",
-            "challenge",
-            "candidate",
-            "approval",
-            "submission",
-            "solution",
-            "operator",
-            "error",
-          ].includes(e.kind) ||
-          (e.kind === "tool" && e.data.status !== "running"),
-      )
-      .slice(-35)
-      .reverse() || [];
-  const latestCandidate = [...(view?.events || [])]
-    .reverse()
-    .find((e) => e.kind === "candidate");
   async function start(e: FormEvent) {
     e.preventDefault();
     setError("");
@@ -579,7 +672,7 @@ export default function App() {
         .object({ id: z.string() })
         .parse(await api("/api/runs", config));
       setSetup(false);
-      await selectRun(response.id);
+      await openRun(response.id);
       await refreshRuns();
     } catch (e) {
       setError(
@@ -601,20 +694,6 @@ export default function App() {
       setHint("");
     } catch (e) {
       setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function chooseChallenge(name: string) {
-    if (!view || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api(`/api/runs/${view.meta.id}/select-challenge`, {
-        challenge: name,
-      });
-    } catch (selectionError) {
-      setError(String(selectionError));
     } finally {
       setBusy(false);
     }
@@ -648,26 +727,10 @@ export default function App() {
       setBusy(false);
     }
   }
-  function configureDemo() {
-    setForm({
-      ...initial,
-      title: "EQST CTF",
-      url: "http://127.0.0.1:18081",
-      demo: true,
-      model: "gpt-6-sol",
-      effort: "max",
-      yolo: true,
-      submissionMode: "auto",
-      browser: false,
-      browserId: "",
-      maxMinutes: 180,
-      prompt:
-        "EQST HAL 로컬 대회 포털의 /api/challenges에서 문제 목록을 확인하고 한 문제씩 직접 풀어. 실행형 문제는 표시된 127.0.0.1 target에 HTTP/TCP 도구로 접속하고, 첨부파일이 있으면 포털에서 내려받아 분석해. 각 문제의 flag를 확보하면 즉시 보고하고 포털 /api/submit(JSON: agent, challenge, flag)으로 문제당 한 번 제출해 verdict를 확인한 뒤 다음 문제로 진행해. 모든 문제를 시도했으면 결과를 요약해.",
-      rules:
-        "EQST HAL 포털(http://127.0.0.1:18081)과 그 문제 target만 대상. 브라우저 없이 HTTP/TCP 도구만 사용. 포털 관리자 기능·다른 사용자 파일·외부 write-up 검색 금지.",
-    });
-    setSetup(true);
+  function openSetup(config: RunConfig) {
+    setForm(config);
     setError("");
+    setSetup(true);
   }
   if (authStatus !== "authenticated")
     return (
@@ -683,65 +746,90 @@ export default function App() {
       />
     );
 
+  const liveView = view && running ? view : null;
   return (
-    <div
-      className={`app ${presenting ? "presenting" : ""} ${motion ? "" : "no-motion"}`}
-    >
+    <div className={`app cyber ${motion ? "" : "no-motion"}`}>
+      <div className="x-backdrop" aria-hidden="true">
+        <span className="x-grid" />
+        <span className="x-glow" />
+      </div>
       <a className="skip" href="#main">
         본문으로 이동
       </a>
       <aside className="navrail">
-        <div className="mark" aria-label="SEAL">
+        <div className="mark" aria-label="EQST">
           <Orbit size={29} />
         </div>
-        <button
-          className={!showHistory ? "nav active" : "nav"}
-          aria-label="라이브 대시보드"
-          onClick={() => setShowHistory(false)}
-        >
-          <LayoutDashboard size={21} />
-        </button>
-        <button
-          className={showHistory ? "nav active" : "nav"}
-          aria-label="실행 기록"
-          onClick={() => {
-            setShowHistory(!showHistory);
-            void refreshRuns();
-          }}
-        >
-          <History size={21} />
-        </button>
-        <div className="rail-line" />
-        <button
-          className="nav"
-          aria-label="새 실행 설정"
-          onClick={() => {
-            setForm({
-              ...initial,
-              browserId: health?.connected[0]?.instance_id || "",
-            });
-            setSetup(true);
-          }}
-        >
-          <Plus size={21} />
-        </button>
+        {(
+          [
+            ["home", "메인", Home],
+            ["run", "실행 화면", Radar],
+            ["history", "실행 기록", History],
+          ] as const
+        ).map(([key, label, NavIcon]) => (
+          <button
+            key={key}
+            className={page === key ? "nav active" : "nav"}
+            aria-label={label}
+            title={label}
+            onClick={() => {
+              if (key === "history") void refreshRuns();
+              go(key);
+            }}
+          >
+            <NavIcon size={21} />
+            {key === "run" && running && <i className="x-nav-live" />}
+          </button>
+        ))}
         <span className="rail-bottom">eqst</span>
       </aside>
       <div className="shell">
         <header className="topbar">
-          <a className="wordmark" href="/" aria-label="EQST CTF Agent">
+          <a
+            className="wordmark"
+            href="/"
+            aria-label="EQST CTF Agent"
+            onClick={(e) => {
+              e.preventDefault();
+              go("home");
+            }}
+          >
             EQST <span>CTF Agent</span>
           </a>
           <div className="top-divider" />
-          <span className="product-name">AI 기반 자율형 CTF 에이전트</span>
+          <nav className="x-tabs" aria-label="화면">
+            {(
+              [
+                ["home", "메인"],
+                ["run", "실행 화면"],
+                ["history", "실행 기록"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                className={page === key ? "active" : ""}
+                onClick={() => {
+                  if (key === "history") void refreshRuns();
+                  go(key);
+                }}
+              >
+                {label}
+                {key === "run" && running && <i className="dot amber pulse" />}
+              </button>
+            ))}
+          </nav>
           <div className="header-actions">
             <span className="connection">
-              <span className={`dot ${connected ? "green" : ""}`} />
+              <span
+                className={`dot ${view ? (connected ? "green" : "") : health ? "green" : ""}`}
+              />
               {view
                 ? connected
-                  ? "실시간 업데이트 중"
+                  ? "실시간 연결"
                   : "다시 연결하는 중"
-                : "대회 시작을 기다리고 있습니다"}
+                : health
+                  ? "엔진 준비됨"
+                  : "엔진 확인 중"}
             </span>
             <button
               className="icon-btn"
@@ -752,12 +840,14 @@ export default function App() {
               <Waves size={18} />
             </button>
             <button
-              className="icon-btn"
-              aria-label={presenting ? "발표 화면 해제" : "발표 화면"}
-              title="발표 화면"
-              onClick={() => setPresenting(!presenting)}
+              type="button"
+              className="button secondary compact flag-visibility"
+              aria-pressed={showFlags}
+              title="화면의 플래그 문자열을 표시하거나 가립니다."
+              onClick={() => setShowFlags((visible) => !visible)}
             >
-              <Maximize2 size={18} />
+              {showFlags ? <EyeOff size={17} /> : <Eye size={17} />}
+              {showFlags ? "플래그 숨기기" : "플래그 보기"}
             </button>
             <button
               className="icon-btn logout-control"
@@ -767,72 +857,10 @@ export default function App() {
             >
               <Unplug size={17} />
             </button>
-            <button
-              type="button"
-              className="button secondary compact flag-visibility"
-              aria-pressed={showFlags}
-              title="화면의 텍스트 플래그를 표시하거나 가립니다. 브라우저 이미지는 원문입니다."
-              onClick={() => setShowFlags((visible) => !visible)}
-            >
-              {showFlags ? <EyeOff size={17} /> : <Eye size={17} />}
-              {showFlags ? "플래그 숨기기" : "플래그 보기"}
-            </button>
-            <button
-              className="button primary compact"
-              onClick={() => {
-                setForm({
-                  ...initial,
-                  browserId: health?.connected[0]?.instance_id || "",
-                });
-                setSetup(true);
-              }}
-            >
-              <Plus size={15} />새 실행
-            </button>
           </div>
         </header>
-        {showHistory && (
-          <section className="history-drawer">
-            <PanelTitle
-              icon={<History size={17} />}
-              title="실행 기록"
-              tail={
-                <button
-                  className="icon-btn"
-                  onClick={() => setShowHistory(false)}
-                  aria-label="기록 닫기"
-                >
-                  <X size={16} />
-                </button>
-              }
-            />
-            {runs.length ? (
-              runs.map((r) => (
-                <button
-                  className="history-row"
-                  key={r.id}
-                  onClick={() => {
-                    void selectRun(r.id);
-                    setShowHistory(false);
-                  }}
-                >
-                  <span>
-                    <strong>{r.title}</strong>
-                    <small>
-                      {new Date(r.createdAt).toLocaleString("ko-KR")} ·{" "}
-                      {r.model}
-                    </small>
-                  </span>
-                  <span className="tag">{labels[r.status]}</span>
-                </button>
-              ))
-            ) : (
-              <p className="muted padded">아직 저장된 실행이 없습니다.</p>
-            )}
-          </section>
-        )}
         <main id="main">
-          {error && (
+          {error && !setup && (
             <div className="error-banner" role="alert">
               <Unplug size={17} />
               <span>{error}</span>
@@ -845,609 +873,80 @@ export default function App() {
               </button>
             </div>
           )}
-          <section className="mission-heading">
-            <div>
-              <div className="eyebrow">
-                <span className={`dot ${running ? "amber pulse" : ""}`} />
-                {view
-                  ? view.meta.config.demo
-                    ? "로컬 데모 · 실제 SEAL 실행"
-                    : "자율 CTF 플레이 · 단일 에이전트"
-                  : "대회 준비부터 문제 풀이까지"}
-              </div>
-              <h1>{view?.meta.config.title || "대회를 시작해 보세요"}</h1>
-              <p>
-                {view
-                  ? `${view.meta.config.url} · Agent ${view.meta.config.agentId}`
-                  : "탐색에서 플래그까지, 실제 문제 풀이가 눈앞에서 이어집니다."}
-              </p>
-            </div>
-            <div className="mission-controls">
-              {view && (
-                <>
-                  <span
-                    className={`status-pill ${running ? "live" : view.status}`}
-                  >
-                    <span className={`dot ${running ? "amber pulse" : ""}`} />
-                    {labels[view.status]}
-                  </span>
-                  {running ? (
-                    <button
-                      className="button danger"
-                      disabled={busy}
-                      onClick={() => void stop()}
-                    >
-                      <Square size={14} />
-                      중지
-                    </button>
-                  ) : (
-                    <button
-                      className="button secondary"
-                      disabled={busy || !view.threadId}
-                      onClick={() => {
-                        setPresenting(false);
-                        setHint(
-                          "같은 대회 작업을 이어가. 아직 끝내지 않은 문제를 계속 풀어.",
-                        );
-                        requestAnimationFrame(() =>
-                          document.getElementById("hint")?.focus(),
-                        );
-                      }}
-                    >
-                      <Play size={15} />
-                      이어하기
-                    </button>
-                  )}
-                </>
-              )}
-              {!view && (
-                <button className="button secondary" onClick={configureDemo}>
-                  <Play size={15} />
-                  실제 엔진 데모
-                </button>
-              )}
-            </div>
-          </section>
-          <ContestFlow view={view} running={running} />
-          {pendingApproval?.flag && (
-            <section
-              className="approval-banner"
-              role="alert"
-              aria-live="assertive"
-            >
-              <div className="approval-signal">
-                <span />
-                <Shield size={22} />
-              </div>
-              <div className="approval-copy">
-                <span className="eyebrow">제출 승인 요청</span>
-                <strong>
-                  {pendingApproval.name} 플래그 후보를 찾았습니다.
-                </strong>
-                <code>{pendingApproval.flag}</code>
-                <p>
-                  정확한 문제와 후보입니다. 승인하면 공식 제출 화면에서 한 번만
-                  전송하고 실제 verdict를 확인합니다.
-                </p>
-              </div>
-              <div className="approval-actions">
-                <button
-                  className="button danger"
-                  disabled={busy}
-                  onClick={() =>
-                    void decideSubmission(pendingApproval.name, "rejected")
-                  }
-                >
-                  <X size={14} />
-                  제출 거부
-                </button>
+          {page === "home" && (
+            <HomePage
+              live={liveView}
+              elapsed={elapsed}
+              health={health}
+              runs={runs}
+              motion={motion}
+              onStart={() => openSetup(demoConfig)}
+              onCustom={() => openSetup({ ...initial })}
+              onWatch={() => go("run")}
+              onHistory={() => {
+                void refreshRuns();
+                go("history");
+              }}
+            />
+          )}
+          {page === "history" && (
+            <HistoryPage
+              runs={runs}
+              activeId={liveView?.meta.id}
+              onOpen={(id) => void openRun(id)}
+              onStart={() => openSetup(demoConfig)}
+            />
+          )}
+          {page === "run" &&
+            (view ? (
+              <RunPage
+                view={view}
+                running={running}
+                elapsed={elapsed}
+                now={now}
+                busy={busy}
+                motion={motion}
+                showFlags={showFlags}
+                hint={hint}
+                onHint={setHint}
+                onSendHint={sendHint}
+                onStop={() => void stop()}
+                onDecide={(name, decision) =>
+                  void decideSubmission(name, decision)
+                }
+                onError={setError}
+              />
+            ) : (
+              <section className="x-empty-run">
+                <Radar size={44} strokeWidth={1.2} />
+                <h2>표시할 실행이 없습니다</h2>
+                <p>새 실행을 시작하면 에이전트의 풀이 과정이 이곳에 실시간으로 나타납니다.</p>
                 <button
                   className="button primary"
-                  disabled={busy}
-                  onClick={() =>
-                    void decideSubmission(pendingApproval.name, "approved")
-                  }
+                  onClick={() => openSetup(demoConfig)}
                 >
-                  <Check size={15} />이 후보 1회 제출 승인
+                  <Rocket size={16} />새 실행 시작
                 </button>
-              </div>
-            </section>
-          )}
-          <IntelligenceMap
-            view={view}
-            running={running}
-            showFlags={showFlags}
-          />
-          <section className="metrics" aria-label="실행 지표">
-            <Metric
-              title="Accepted"
-              value={`${accepted.length}`}
-              unit="문제"
-              icon={<CheckCheck size={19} />}
-              note={
-                confirmed.length
-                  ? `${confirmed.reduce((sum, c) => sum + (c.points || 0), 0)}점 · 채점 결과 확인`
-                  : accepted.length
-                    ? "에이전트가 보고한 결과"
-                    : "정답으로 확인된 문제 수"
-              }
-              accent
-            />
-            <Metric
-              title={view?.catalogReady ? "전체 문제" : "목록 확인 중"}
-              value={`${view?.challenges.length || 0}`}
-              unit="문제"
-              icon={<LayoutDashboard size={19} />}
-              note={
-                view?.catalogReady
-                  ? `대기 ${view.challenges.filter((c) => c.status === "queued").length}개 · 후보 ${view.challenges.filter((c) => c.status === "candidate").length}개`
-                  : "전체 목록을 먼저 확인하는 중"
-              }
-            />
-            <Metric
-              title="도구 실행"
-              value={`${view?.toolCount || 0}`}
-              unit="회"
-              icon={<Terminal size={19} />}
-              note={`종료 코드 오류 ${view?.nonzeroCount || 0}회 · ${view?.tokens.output ? "출력 " + count(view.tokens.output) + " 토큰" : "실제 실행 기준"}`}
-            />
-            <Metric
-              title="작업 시간"
-              value={formatTime(elapsed)}
-              unit=""
-              icon={<Clock3 size={19} />}
-              note={`${view?.meta.config.model || "gpt-6-sol"} / ${view?.meta.config.effort || "ready"}`}
-            />
-          </section>
-          <div className="workspace-grid">
-            <section className="stage panel">
-              <div className="stage-header">
-                <div
-                  className="stage-tabs"
-                  role="tablist"
-                  aria-label="작업 화면"
-                >
-                  <button
-                    role="tab"
-                    aria-selected={tab === "browser"}
-                    onClick={() => setTab("browser")}
-                  >
-                    <Globe2 size={15} />
-                    Browser
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={tab === "terminal"}
-                    onClick={() => setTab("terminal")}
-                  >
-                    <Terminal size={15} />
-                    Terminal<span>{view?.tools.length || 0}</span>
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={tab === "files"}
-                    onClick={() => setTab("files")}
-                  >
-                    <FileCode2 size={15} />
-                    Files
-                  </button>
-                </div>
-                <span className="stage-status">
-                  <span className={`dot ${running ? "blue" : ""}`} />
-                  {running ? "작업 중" : view ? "저장된 화면" : "대기 중"}
-                </span>
-              </div>
-              {tab === "browser" && (
-                <>
-                  <div className="browser-address">
-                    <div className="window-dots">
-                      <i />
-                      <i />
-                      <i />
-                    </div>
-                    <Shield size={12} />
-                    <span>
-                      {view?.browser.url ||
-                        view?.meta.config.url ||
-                        "이 작업 전용 브라우저"}
-                    </span>
-                    <span className="frame-age">
-                      {view?.browser.capturedAt
-                        ? `${Math.max(0, Math.floor((now - view.browser.capturedAt) / 1000))}s ago`
-                        : ""}
-                    </span>
-                  </div>
-                  <div className="browser-surface">
-                    {view?.browser.capturedAt ? (
-                      <img
-                        src={`/api/runs/${view.meta.id}/frame?t=${view.browser.capturedAt}`}
-                        alt={`에이전트 브라우저: ${view.browser.title || "현재 페이지"}`}
-                        className="browser-frame"
-                      />
-                    ) : (
-                      <div className="standby">
-                        <div className={`orb ${running ? "working" : ""}`}>
-                          <Orbit size={72} strokeWidth={0.75} />
-                          <span />
-                          <i />
-                        </div>
-                        <span className="standby-kicker">
-                          {running ? "브라우저 연결 중" : "문제 풀이 화면"}
-                        </span>
-                        <h2>
-                          {running
-                            ? "탐색할 화면을 준비하고 있습니다."
-                            : "단서가 풀이가 되는 순간."}
-                        </h2>
-                        <p>
-                          {view?.browser.error ||
-                            (view && !view.meta.config.browser
-                              ? "브라우저 연결이 꺼져 있습니다. 실행 기록에서 도구 결과를 확인하세요."
-                              : "대회 사이트를 열고, 문제를 살피고, 직접 해결하는 과정을 관찰하세요.")}
-                        </p>
-                        {!view && (
-                          <button
-                            className="button primary"
-                            onClick={configureDemo}
-                          >
-                            <Play size={15} />
-                            로컬 CTF로 시작해 보기
-                            <ArrowUpRight size={15} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {view?.browser.state === "unavailable" &&
-                      view.browser.capturedAt && (
-                        <div className="frame-warning">
-                          화면 연결 중단 · 마지막 캡처 표시
-                        </div>
-                      )}
-                  </div>
-                  <div className="stage-caption">
-                    <span>
-                      <span
-                        className={`dot ${view?.browser.state === "live" ? "green" : ""}`}
-                      />
-                      {view?.browser.state === "live"
-                        ? "에이전트가 사용 중인 브라우저"
-                        : view?.browser.capturedAt
-                          ? "마지막 실제 브라우저 캡처"
-                          : "전용 브라우저 화면"}
-                    </span>
-                    <small>
-                      약 4.5초 간격 · 브라우저 원문은 마스킹되지 않습니다
-                    </small>
-                  </div>
-                </>
-              )}
-              {tab === "terminal" && (
-                <div className="terminal-view">
-                  <div className="terminal-list">
-                    {view?.tools
-                      .slice(-24)
-                      .reverse()
-                      .map((t) => (
-                        <button
-                          key={t.id}
-                          className={
-                            terminal?.id === t.id
-                              ? "tool-choice selected"
-                              : "tool-choice"
-                          }
-                          onClick={() => setSelectedTool(t.id)}
-                        >
-                          <Icon type={t.family} />
-                          <span>
-                            {safe(shortCommand(t.command), showFlags).slice(
-                              0,
-                              52,
-                            )}
-                          </span>
-                          <span className={`tool-dot ${t.status}`} />
-                        </button>
-                      ))}
-                    {!view?.tools.length && (
-                      <p className="empty-small">
-                        실행한 명령이 여기에 나타납니다.
-                      </p>
-                    )}
-                  </div>
-                  <div className="terminal-code">
-                    <div className="terminal-meta">
-                      <span>
-                        {terminal
-                          ? familyLabels[terminal.family] || terminal.family
-                          : "명령 실행"}
-                      </span>
-                      <span>
-                        {terminal?.endedAt
-                          ? `${((terminal.endedAt - terminal.startedAt) / 1000).toFixed(1)}s · exit ${terminal.exitCode ?? "—"}`
-                          : terminal
-                            ? "실행 중"
-                            : "대기 중"}
-                      </span>
-                    </div>
-                    <pre className="command-line">
-                      {terminal
-                        ? `$ ${safe(terminal.command, showFlags)}`
-                        : "$ 에이전트의 실제 명령을 기다리는 중"}
-                    </pre>
-                    <pre className="command-output">
-                      {terminal
-                        ? safe(
-                            terminal.output ||
-                              (terminal.status === "running"
-                                ? "프로세스가 실행 중입니다…"
-                                : terminal.status === "stopped"
-                                  ? "중단됨 · 완전한 결과를 받지 못했습니다."
-                                  : "출력 없이 종료되었습니다."),
-                            showFlags,
-                          )
-                        : "가짜 명령이나 시뮬레이션 출력을 표시하지 않습니다."}
-                    </pre>
-                    {terminal?.status === "running" && (
-                      <span className="terminal-cursor" />
-                    )}
-                  </div>
-                </div>
-              )}
-              {tab === "files" && (
-                <div className="file-list">
-                  {view?.artifacts.length ? (
-                    view.artifacts.map((f) => (
-                      <button
-                        key={f.path}
-                        onClick={async () => {
-                          try {
-                            const r = await fetch(
-                              `/api/runs/${view.meta.id}/artifact?path=${encodeURIComponent(f.path)}`,
-                            );
-                            if (!r.ok)
-                              throw new Error("파일을 열 수 없습니다.");
-                            setArtifact({ name: f.path, text: await r.text() });
-                          } catch (e) {
-                            setError(String(e));
-                          }
-                        }}
-                      >
-                        <FileCode2 size={17} />
-                        <span>{f.path}</span>
-                        <small>{count(f.bytes)} B</small>
-                        <ArrowUpRight size={14} />
-                      </button>
-                    ))
-                  ) : (
-                    <div className="empty-state">
-                      <FileCode2 size={28} />
-                      <h3>분석의 흔적이 쌓이는 곳</h3>
-                      <p>
-                        문제 파일, 풀이 코드, 실행 결과를 실제 작업폴더에서
-                        가져옵니다.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-              {latestCandidate && (
-                <div className="candidate-strip">
-                  <Flag size={18} />
-                  <div>
-                    <span>최근 플래그 후보</span>
-                    <code>
-                      {safe(latestCandidate.data.flag || "", showFlags)}
-                    </code>
-                  </div>
-                </div>
-              )}
-            </section>
-            <aside className="right-column">
-              <section className="challenges panel">
-                <PanelTitle
-                  icon={<Flag size={16} />}
-                  title="문제 목록"
-                  tail={
-                    <span className="count-badge">
-                      {view?.challenges.length || 0}
-                    </span>
-                  }
-                />
-                <div className="challenge-list">
-                  {view?.challenges.length ? (
-                    view.challenges.map((c) => (
-                      <details key={c.name} className={`challenge ${c.status}`}>
-                        <summary>
-                          <span className="challenge-icon">
-                            {c.status === "accepted" ? (
-                              <Check size={16} />
-                            ) : c.status === "candidate" ? (
-                              <Flag size={16} />
-                            ) : c.status === "queued" ? (
-                              <Clock3 size={16} />
-                            ) : c.status === "blocked" ? (
-                              <Unplug size={16} />
-                            ) : (
-                              <Orbit size={16} />
-                            )}
-                          </span>
-                          <span>
-                            <strong>{c.name}</strong>
-                            <small>
-                              {categoryLabels[c.category.toLowerCase()] ||
-                                c.category}
-                              {c.points !== undefined ? ` · ${c.points}점` : ""}
-                            </small>
-                          </span>
-                          <span className={`challenge-state ${c.status}`}>
-                            {c.status === "accepted"
-                              ? "Accepted"
-                              : c.status === "candidate"
-                                ? "후보 확보"
-                                : c.status === "rejected"
-                                  ? "오답"
-                                  : c.status === "queued"
-                                    ? "대기"
-                                    : c.status === "blocked"
-                                      ? "진행 보류"
-                                      : c.status === "skipped"
-                                        ? "건너뜀"
-                                        : running
-                                          ? "풀이 중"
-                                          : "일시 중지"}
-                          </span>
-                        </summary>
-                        <div className="challenge-detail">
-                          <p>
-                            {c.source === "platform"
-                              ? "로컬 플랫폼 응답으로 확인"
-                              : c.source === "workspace"
-                                ? "실제 작업폴더에서 감지"
-                                : c.source === "catalog"
-                                  ? "대회 문제 목록에서 확인"
-                                  : "에이전트 보고 · 근거를 확인하세요"}
-                          </p>
-                          {c.flag && <code>{safe(c.flag, showFlags)}</code>}
-                          {c.evidence && (
-                            <pre>{safe(c.evidence, showFlags)}</pre>
-                          )}
-                          {c.decision === "approved" && (
-                            <p className="decision approved">
-                              <Check size={12} />
-                              운영자가 이 후보의 1회 제출을 승인했습니다.
-                            </p>
-                          )}
-                          {c.decision === "rejected" && (
-                            <p className="decision rejected">
-                              <X size={12} />
-                              운영자가 이 후보의 제출을 거부했습니다.
-                            </p>
-                          )}
-                          {view?.meta.config.mode === "guided" &&
-                            [
-                              "queued",
-                              "blocked",
-                              "skipped",
-                              "rejected",
-                            ].includes(c.status) &&
-                            view.threadId && (
-                              <button
-                                type="button"
-                                className="pick-challenge"
-                                disabled={busy}
-                                onClick={() => void chooseChallenge(c.name)}
-                              >
-                                <Play size={14} />이 문제만 풀기
-                              </button>
-                            )}
-                        </div>
-                      </details>
-                    ))
-                  ) : (
-                    <div className="empty-board">
-                      <div className="outline-stack">
-                        <span />
-                        <span />
-                        <span />
-                      </div>
-                      <p>
-                        에이전트가 선택한 문제가
-                        <br />
-                        이곳에 하나씩 나타납니다.
-                      </p>
-                    </div>
-                  )}
-                </div>
               </section>
-            </aside>
-          </div>
-          <SolutionsPanel view={view} showFlags={showFlags} />
-          <section className="activity panel">
-            <PanelTitle
-              icon={<Activity size={17} />}
-              title="실시간 풀이 기록"
-              tail={
-                <div className="activity-actions">
-                  <span>실제 이벤트만 표시</span>
-                  {view && (
-                    <a
-                      href={`/api/runs/${view.meta.id}/log`}
-                      className="text-button"
-                    >
-                      <Download size={14} />
-                      로그 저장
-                    </a>
-                  )}
-                </div>
-              }
-            />
-            <div className="feed">
-              {feed.length ? (
-                feed.map((e) => (
-                  <EventRow
-                    key={e.seq}
-                    event={e}
-                    showFlags={showFlags}
-                    onTool={() => {
-                      if (e.data.id) {
-                        setTab("terminal");
-                        setSelectedTool(e.data.id);
-                      }
-                    }}
-                  />
-                ))
-              ) : (
-                <div className="empty-feed">
-                  <span className="dot" />
-                  <p>
-                    대회를 시작하면 탐색, 관찰, 도구 실행, 제출 결과가
-                    시간순으로 쌓입니다.
-                  </p>
-                  <code>아직 기록이 없습니다</code>
-                </div>
-              )}
-            </div>
-          </section>
-          <form className="operator-bar" onSubmit={sendHint}>
-            <MessageSquare size={18} />
-            <input
-              id="hint"
-              aria-label="에이전트에게 지시"
-              value={hint}
-              onChange={(e) => setHint(e.target.value)}
-              placeholder={
-                running
-                  ? "필요할 때 개입하세요. 현재 턴을 중단하고 같은 대화에서 이어갑니다…"
-                  : "후속 지시를 입력해 같은 대화를 이어가세요…"
-              }
-              disabled={!view?.threadId}
-            />
-            <button
-              type="submit"
-              className="button primary compact"
-              disabled={!view?.threadId || busy || !hint.trim()}
-            >
-              <Send size={15} />
-              {running ? "지시 전달" : "이어하기"}
-            </button>
-          </form>
+            ))}
           <footer>
             <span>
               <Shield size={13} />
               SEAL 에이전트 한 개로 진행
             </span>
-            <span>실제 보고와 실행 결과를 보여드립니다.</span>
+            <span>화면의 모든 수치는 실제 실행 이벤트에서 집계합니다.</span>
             <span>EQST CTF Agent</span>
           </footer>
         </main>
       </div>
       {celebration && (
-        <div className="success-toast" role="status">
+        <div className="success-toast x-solved-toast" role="status">
           <span className="success-halo" />
-          <CheckCheck size={28} />
+          <ShieldCheck size={30} />
           <div>
-            <small>채점 결과 확인</small>
+            <small>포털 정답 판정</small>
             <strong>{celebration}</strong>
-            <span>정답입니다. 한 문제를 해결했습니다.</span>
+            <span>에이전트가 문제를 해결했습니다.</span>
           </div>
           <button
             className="icon-btn"
@@ -1469,8 +968,8 @@ export default function App() {
         <form onSubmit={start}>
           <div className="dialog-heading">
             <div>
-              <span className="eyebrow">대회 설정</span>
-              <h2>새 대회 시작하기</h2>
+              <span className="eyebrow">실행 설정</span>
+              <h2>{form.demo ? "EQST CTF 데모 실행" : "새 실행 설정"}</h2>
             </div>
             <button
               type="button"
@@ -1481,6 +980,22 @@ export default function App() {
               <X size={20} />
             </button>
           </div>
+          {form.demo && (
+            <div className="x-demo-summary">
+              <span>
+                <b>대회</b>EQST HAL 로컬 포털
+              </span>
+              <span>
+                <b>모델</b>GPT-6 Sol · 추론 강도 max
+              </span>
+              <span>
+                <b>제출</b>검증된 플래그 자동 제출
+              </span>
+              <span>
+                <b>권한</b>SEAL --yolo · 최대 180분
+              </span>
+            </div>
+          )}
           <div className="setup-grid">
             <div className="setup-main">
               <label>
@@ -1565,6 +1080,7 @@ export default function App() {
                 모델
                 <select
                   value={form.model}
+                  disabled={form.demo}
                   onChange={(e) =>
                     setForm({
                       ...form,
@@ -1581,6 +1097,7 @@ export default function App() {
                   추론 강도 (Effort)
                   <select
                     value={form.effort}
+                    disabled={form.demo}
                     onChange={(e) =>
                       setForm({
                         ...form,
@@ -1634,24 +1151,15 @@ export default function App() {
                   <option value="off">제출하지 않음</option>
                 </select>
               </label>
-              <p className="option-help">
-                수동 승인 모드는 flag를 먼저 보여주고, 대시보드에서 승인한
-                정확한 후보만 한 번 제출합니다.
-              </p>
               <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked
-                  disabled
-                  readOnly
-                />
+                <input type="checkbox" checked disabled readOnly />
                 <span>
                   <Shield size={16} />
                   SEAL --yolo
                 </span>
               </label>
               <p className="option-help warning">
-                승인·native sandbox 해제. 격리된 CTF 환경에서만 선택하세요.
+                승인·native sandbox 해제. 격리된 CTF 환경에서만 사용합니다.
               </p>
             </div>
           </div>
@@ -1661,23 +1169,32 @@ export default function App() {
             </p>
           )}
           <div className="dialog-footer">
-            <button
-              type="button"
-              className="text-button"
-              onClick={configureDemo}
-            >
-              <Braces size={16} />
-              로컬 데모 설정
-            </button>
+            {form.demo ? (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setForm({ ...initial })}
+              >
+                <Settings2 size={16} />
+                다른 대회로 직접 설정
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setForm(demoConfig)}
+              >
+                <Braces size={16} />
+                EQST CTF 데모 설정
+              </button>
+            )}
             <span>
-              {form.demo
-                ? "로컬 CTF · 실제 모델 호출"
-                : "기존 SEAL 로그인·스킬 사용"}
+              {form.demo ? "로컬 CTF · 실제 모델 호출" : "기존 SEAL 로그인·스킬 사용"}
             </span>
             <button
               className="button primary"
               type="submit"
-              disabled={busy || !!(view && active(view.status))}
+              disabled={busy || running}
             >
               {busy ? (
                 <LoaderCircle className="spin" size={16} />
@@ -1689,6 +1206,1280 @@ export default function App() {
           </div>
         </form>
       </dialog>
+    </div>
+  );
+}
+
+function HomePage({
+  live,
+  elapsed,
+  health,
+  runs,
+  motion,
+  onStart,
+  onCustom,
+  onWatch,
+  onHistory,
+}: {
+  live: View | null;
+  elapsed: number;
+  health: Health | null;
+  runs: RunHistory;
+  motion: boolean;
+  onStart: () => void;
+  onCustom: () => void;
+  onWatch: () => void;
+  onHistory: () => void;
+}) {
+  const solved = live?.challenges.filter((c) => c.status === "accepted").length || 0;
+  return (
+    <div className="x-home">
+      <section className="x-hero">
+        <div className="x-hero-copy">
+          <span className="x-kicker">
+            <i className={`dot ${live ? "amber pulse" : "green"}`} />
+            AI 기반 자율형 CTF 에이전트
+          </span>
+          <h1>
+            스스로 탐색하고, 분석하고,
+            <br />
+            <em>직접 풀어 제출합니다.</em>
+          </h1>
+          <p>
+            EQST CTF Agent는 사람의 개입 없이 대회 문제 목록을 확인하고, 문제마다
+            파일과 서비스를 탐색해 취약점을 찾고, 풀이 코드를 실행해 얻은 플래그를
+            포털에 제출합니다. 그 전 과정을 이 화면에서 실시간으로 볼 수 있습니다.
+          </p>
+          <div className="x-hero-actions">
+            {live ? (
+              <button className="button primary x-cta" onClick={onWatch}>
+                <Radar size={18} />
+                진행 중인 실행 보기
+                <ArrowRight size={16} />
+              </button>
+            ) : (
+              <button className="button primary x-cta" onClick={onStart}>
+                <Rocket size={18} />새 실행 시작
+                <ArrowRight size={16} />
+              </button>
+            )}
+            <button className="button secondary" onClick={onCustom} disabled={!!live}>
+              <Settings2 size={15} />
+              직접 설정
+            </button>
+          </div>
+          <div className="x-hero-meta">
+            <span>
+              <Flag size={13} />
+              EQST HAL 로컬 대회
+            </span>
+            <span>
+              <Cpu size={13} />
+              GPT-6 Sol · max
+            </span>
+            <span>
+              <i className={`dot ${health ? "green" : ""}`} />
+              {health ? `SEAL 엔진 준비됨 · ${health.codex}` : "엔진 상태 확인 중"}
+            </span>
+          </div>
+        </div>
+        <div className={`x-hero-visual ${live ? "live" : ""}`} aria-hidden="true">
+          <RadarScope active={!!live || motion} />
+          <div className="x-hero-code">
+            {(live
+              ? live.tools
+                  .filter((t) => !isReporter(t.command))
+                  .slice(-6)
+                  .map((t) => `$ ${shortCommand(t.command).slice(0, 64)}`)
+              : [
+                  "$ curl -s http://127.0.0.1:18081/api/challenges",
+                  "$ file attachments/*",
+                  "$ objdump -d boi | grep -A20 '<main>'",
+                  "$ python3 solve/exploit.py",
+                  "$ curl -s -X POST .../api/submit",
+                ]
+            ).map((line, index) => (
+              <code key={`${index}-${line}`} style={{ animationDelay: `${index * 0.4}s` }}>
+                {line}
+              </code>
+            ))}
+          </div>
+        </div>
+      </section>
+      {live && (
+        <button className="x-live-card" onClick={onWatch}>
+          <span className="x-live-badge">
+            <i className="dot amber pulse" />
+            LIVE
+          </span>
+          <div>
+            <strong>{live.meta.config.title}</strong>
+            <small>
+              {live.focus.challenge || live.currentChallenge || "문제 목록 확인 중"} ·{" "}
+              {stageLabels[live.focus.stage]}
+            </small>
+          </div>
+          <dl>
+            <div>
+              <dt>경과</dt>
+              <dd>{formatTime(elapsed)}</dd>
+            </div>
+            <div>
+              <dt>해결</dt>
+              <dd>
+                {solved}/{live.challenges.length || "–"}
+              </dd>
+            </div>
+            <div>
+              <dt>도구 호출</dt>
+              <dd>{live.stats.tools}</dd>
+            </div>
+          </dl>
+          <ArrowUpRight size={20} />
+        </button>
+      )}
+      <section className="x-steps" aria-label="에이전트의 풀이 과정">
+        {steps.map((step, index) => (
+          <article key={step.stage}>
+            <span className="x-step-no">{String(index + 1).padStart(2, "0")}</span>
+            <StepIcon stage={step.stage} />
+            <strong>{step.label}</strong>
+            <p>{step.detail}</p>
+          </article>
+        ))}
+      </section>
+      <section className="x-home-foot">
+        <div>
+          <History size={16} />
+          이전 실행 {runs.length}건의 기록과 풀이 결과는 실행 기록 탭에서 볼 수 있습니다.
+        </div>
+        <button className="text-button" onClick={onHistory}>
+          실행 기록 열기
+          <ArrowRight size={14} />
+        </button>
+      </section>
+    </div>
+  );
+}
+function StepIcon({ stage, size = 20 }: { stage: ProgressStage; size?: number }) {
+  const icons: Partial<Record<ProgressStage, typeof Search>> = {
+    inspect: FileSearch,
+    model: Binary,
+    exploit: Braces,
+    verify: FlaskConical,
+    submit: Flag,
+  };
+  const Component = icons[stage] || Activity;
+  return <Component size={size} strokeWidth={1.6} />;
+}
+function RadarScope({
+  active: on,
+  blips = 5,
+  center,
+}: {
+  active: boolean;
+  blips?: number;
+  center?: ReactNode;
+}) {
+  return (
+    <div className={`x-radar ${on ? "on" : ""}`}>
+      <span className="x-radar-ring" />
+      <span className="x-radar-ring" />
+      <span className="x-radar-ring" />
+      <span className="x-radar-sweep" />
+      {Array.from({ length: blips }, (_, i) => (
+        <i
+          key={i}
+          className="x-radar-blip"
+          style={{
+            left: `${50 + 36 * Math.cos(i * 2.4)}%`,
+            top: `${50 + 36 * Math.sin(i * 2.4)}%`,
+            animationDelay: `${i * 0.55}s`,
+          }}
+        />
+      ))}
+      <div className="x-radar-core">{center || <Orbit size={34} strokeWidth={1.3} />}</div>
+    </div>
+  );
+}
+
+function HistoryPage({
+  runs,
+  activeId,
+  onOpen,
+  onStart,
+}: {
+  runs: RunHistory;
+  activeId?: string;
+  onOpen: (id: string) => void;
+  onStart: () => void;
+}) {
+  return (
+    <section className="x-history">
+      <header>
+        <div>
+          <span className="eyebrow">실행 기록</span>
+          <h1>이전 실행</h1>
+          <p>실행을 선택하면 당시의 풀이 과정과 지표를 다시 볼 수 있습니다.</p>
+        </div>
+        <button className="button primary" onClick={onStart} disabled={!!activeId}>
+          <Rocket size={15} />새 실행 시작
+        </button>
+      </header>
+      {runs.length ? (
+        <div className="x-history-list">
+          {runs.map((r) => (
+            <button
+              className={`x-history-row ${r.status}`}
+              key={r.id}
+              onClick={() => onOpen(r.id)}
+            >
+              <span className="x-history-icon">
+                {active(r.status) ? <Radar size={18} /> : <History size={18} />}
+              </span>
+              <span>
+                <strong>{r.title}</strong>
+                <small>
+                  {new Date(r.createdAt).toLocaleString("ko-KR")} · {r.model}
+                  {r.demo ? " · 데모" : ""}
+                </small>
+              </span>
+              <span className={`tag ${active(r.status) ? "live" : ""}`}>
+                {labels[r.status]}
+              </span>
+              <ArrowUpRight size={16} />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="muted padded">아직 저장된 실행이 없습니다.</p>
+      )}
+    </section>
+  );
+}
+
+function RunPage({
+  view,
+  running,
+  elapsed,
+  now,
+  busy,
+  motion,
+  showFlags,
+  hint,
+  onHint,
+  onSendHint,
+  onStop,
+  onDecide,
+  onError,
+}: {
+  view: View;
+  running: boolean;
+  elapsed: number;
+  now: number;
+  busy: boolean;
+  motion: boolean;
+  showFlags: boolean;
+  hint: string;
+  onHint: (value: string) => void;
+  onSendHint: (event: FormEvent) => void;
+  onStop: () => void;
+  onDecide: (name: string, decision: "approved" | "rejected") => void;
+  onError: (message: string) => void;
+}) {
+  const pendingApproval =
+    view.meta.config.submissionMode === "manual"
+      ? view.challenges.find(
+          (challenge) =>
+            challenge.status === "candidate" &&
+            !!challenge.flag &&
+            !challenge.decision,
+        )
+      : undefined;
+  return (
+    <div className="x-run">
+      <section className="x-run-head">
+        <div>
+          <span className="x-kicker">
+            <i className={`dot ${running ? "amber pulse" : ""}`} />
+            {view.meta.config.demo ? "EQST CTF 데모 · 실제 SEAL 실행" : "자율 CTF 실행"}
+          </span>
+          <h1>{view.meta.config.title}</h1>
+          <p>
+            {view.meta.config.model} · {view.meta.config.effort} · Agent{" "}
+            {view.meta.config.agentId} · {new Date(view.meta.createdAt).toLocaleString("ko-KR")}
+          </p>
+        </div>
+        <div className="x-run-controls">
+          <div className={`x-timer ${running ? "live" : ""}`}>
+            <Clock3 size={16} />
+            <span>{formatTime(elapsed)}</span>
+          </div>
+          <span className={`status-pill ${running ? "live" : view.status}`}>
+            <span className={`dot ${running ? "amber pulse" : ""}`} />
+            {labels[view.status]}
+          </span>
+          {running && (
+            <button className="button danger" disabled={busy} onClick={onStop}>
+              <Square size={14} />
+              중지
+            </button>
+          )}
+        </div>
+      </section>
+      {pendingApproval?.flag && (
+        <section className="approval-banner" role="alert" aria-live="assertive">
+          <div className="approval-signal">
+            <span />
+            <Shield size={22} />
+          </div>
+          <div className="approval-copy">
+            <span className="eyebrow">제출 승인 요청</span>
+            <strong>{pendingApproval.name} 플래그 후보를 찾았습니다.</strong>
+            <code>{pendingApproval.flag}</code>
+            <p>승인하면 공식 제출 화면에서 한 번만 전송하고 실제 판정을 확인합니다.</p>
+          </div>
+          <div className="approval-actions">
+            <button
+              className="button danger"
+              disabled={busy}
+              onClick={() => onDecide(pendingApproval.name, "rejected")}
+            >
+              <X size={14} />
+              제출 거부
+            </button>
+            <button
+              className="button primary"
+              disabled={busy}
+              onClick={() => onDecide(pendingApproval.name, "approved")}
+            >
+              <Check size={15} />이 후보 1회 제출 승인
+            </button>
+          </div>
+        </section>
+      )}
+      <div className="x-command">
+        <NowPanel view={view} running={running} showFlags={showFlags} motion={motion} />
+        <SolveGauge view={view} running={running} motion={motion} />
+      </div>
+      <MetricsPanel view={view} elapsed={elapsed} running={running} motion={motion} now={now} />
+      <ProblemBoard view={view} running={running} now={now} />
+      <div className="x-story-grid">
+        <Timeline view={view} showFlags={showFlags} />
+        <SolutionCards view={view} showFlags={showFlags} />
+      </div>
+      <DetailSection
+        view={view}
+        running={running}
+        showFlags={showFlags}
+        busy={busy}
+        hint={hint}
+        onHint={onHint}
+        onSendHint={onSendHint}
+        onError={onError}
+      />
+    </div>
+  );
+}
+
+function NowPanel({
+  view,
+  running,
+  showFlags,
+  motion,
+}: {
+  view: View;
+  running: boolean;
+  showFlags: boolean;
+  motion: boolean;
+}) {
+  const focus = view.focus;
+  const name = focus.challenge || view.currentChallenge;
+  const problem = view.challenges.find((c) => c.name === name);
+  const latestMessage = view.events.findLast((e) => e.kind === "message");
+  const commands = view.tools.filter((t) => !isReporter(t.command)).slice(-4);
+  const current = commands.findLast((t) => t.status === "running");
+  // 현재 문제에서 실제로 지나온 단계를 표시한다.
+  const reached = Math.max(
+    stageIndex[focus.stage],
+    ...view.events
+      .filter((e) => e.kind === "progress" && e.data.challenge === name && e.data.stage)
+      .map((e) => stageIndex[e.data.stage!]),
+  );
+  const heading = !view.catalogReady
+    ? "대회 문제 목록을 확인하고 있습니다"
+    : name || "다음 문제를 고르고 있습니다";
+  return (
+    <section className={`x-now ${running ? "live" : ""}`} aria-label="지금 하는 일">
+      <div className="x-now-scope">
+        <RadarScope
+          active={running && motion}
+          blips={Math.min(8, 3 + (view.stats.tools % 6))}
+          center={<StepIcon stage={stageIndex[focus.stage] >= 0 && focus.stage !== "complete" ? focus.stage : "inspect"} size={30} />}
+        />
+      </div>
+      <div className="x-now-body">
+        <span className="x-kicker">
+          <Radar size={13} />
+          {running ? "지금 하는 일" : "마지막 작업"}
+          {focus.source === "agent" ? " · 에이전트 보고" : " · 도구 활동 기준"}
+        </span>
+        <h2>
+          {heading}
+          {problem && <span className="x-cat">{category(problem.category)}</span>}
+          {problem?.points !== undefined && <span className="x-pts">{problem.points}점</span>}
+        </h2>
+        <p className="x-now-summary">{safe(focus.summary, showFlags)}</p>
+        {focus.next && (
+          <p className="x-now-next">
+            <ArrowRight size={13} />
+            <b>다음</b>
+            {safe(focus.next, showFlags)}
+          </p>
+        )}
+        <ol className="x-stepper">
+          {steps.map((step, index) => {
+            // 현재 단계 이후라도 이미 거친 단계는 "거침"으로만 표시해 순서가 뒤집혀 보이지 않게 한다.
+            const state =
+              focus.stage === "complete" || index < stageIndex[focus.stage]
+                ? "done"
+                : index === stageIndex[focus.stage]
+                  ? "now"
+                  : index <= reached
+                    ? "seen"
+                    : "";
+            return (
+              <li key={step.stage} className={state} title={step.detail}>
+                <span>
+                  {state === "done" ? <Check size={13} /> : <StepIcon stage={step.stage} size={14} />}
+                </span>
+                {step.label}
+              </li>
+            );
+          })}
+          {focus.stage === "blocked" && (
+            <li className="held">
+              <span>
+                <PauseCircle size={13} />
+              </span>
+              보류
+            </li>
+          )}
+        </ol>
+        <div className="x-ticker" aria-label="최근 실행한 명령">
+          {commands.length ? (
+            commands.map((t) => (
+              <code key={t.id} className={t.status}>
+                <span style={{ color: families.find((f) => f.key === t.family)?.color }}>
+                  {familyLabels[t.family] || t.family}
+                </span>
+                {safe(shortCommand(t.command), showFlags).slice(0, 120)}
+                {t === current && <i className="terminal-cursor" />}
+              </code>
+            ))
+          ) : (
+            <code>명령 실행을 기다리는 중</code>
+          )}
+        </div>
+        {latestMessage?.detail && (
+          <details className="x-now-message">
+            <summary>
+              <MessageSquare size={13} />
+              에이전트 최근 보고 · {clock(latestMessage.at)}
+            </summary>
+            <div className="public-message">
+              <PublicMessage>{safe(latestMessage.detail, showFlags)}</PublicMessage>
+            </div>
+          </details>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SolveGauge({
+  view,
+  running,
+  motion,
+}: {
+  view: View;
+  running: boolean;
+  motion: boolean;
+}) {
+  const totals: Record<Board, number> = { queued: 0, working: 0, solved: 0, held: 0 };
+  for (const c of view.challenges) totals[boardStatus(c, running)]++;
+  const total = view.challenges.length;
+  const solved = useCountUp(totals.solved, motion);
+  const ratio = total ? totals.solved / total : 0;
+  const r = 70,
+    circumference = 2 * Math.PI * r;
+  return (
+    <section className="x-gauge" aria-label="문제 해결 현황">
+      <div className="x-gauge-ring">
+        <svg viewBox="0 0 180 180" role="img" aria-label={`전체 ${total}문제 중 ${totals.solved}문제 해결`}>
+          <circle cx="90" cy="90" r={r} className="track" />
+          <circle
+            cx="90"
+            cy="90"
+            r={r}
+            className="value"
+            strokeDasharray={`${circumference * ratio} ${circumference}`}
+          />
+        </svg>
+        <div>
+          <strong>{solved}</strong>
+          <span>/ {total || "–"} 해결</span>
+        </div>
+      </div>
+      <ul className="x-gauge-legend">
+        {(Object.keys(boardLabels) as Board[]).map((key) => (
+          <li key={key} className={key}>
+            <BoardIcon status={key} />
+            {boardLabels[key]}
+            <b>{totals[key]}</b>
+          </li>
+        ))}
+      </ul>
+      <p className="x-gauge-note">
+        {view.catalogReady ? view.catalogSummary : "문제 목록을 확인하는 중"}
+      </p>
+    </section>
+  );
+}
+function BoardIcon({ status }: { status: Board }) {
+  if (status === "solved") return <Check size={13} />;
+  if (status === "working") return <LoaderCircle size={13} className="spin" />;
+  if (status === "held") return <PauseCircle size={13} />;
+  return <Clock3 size={13} />;
+}
+
+function MetricsPanel({
+  view,
+  elapsed,
+  running,
+  motion,
+  now,
+}: {
+  view: View;
+  elapsed: number;
+  running: boolean;
+  motion: boolean;
+  now: number;
+}) {
+  const s = view.stats;
+  const minutes = Math.max(elapsed / 60_000, 1 / 60);
+  const solvedTimes = Object.values(s.problems)
+    .filter((p) => p.startedAt && p.endedAt)
+    .map((p) => p.endedAt! - p.startedAt!);
+  const attempted = Object.values(s.problems).filter((p) => p.startedAt).length;
+  const clues =
+    (s.findings.surface || 0) +
+    (s.findings.structure || 0) +
+    (s.findings.constraint || 0) +
+    (s.findings.evidence || 0) +
+    (s.findings.artifact || 0);
+  const firstSolve = Math.min(
+    ...Object.values(s.problems)
+      .filter((p) => p.endedAt)
+      .map((p) => p.endedAt! - view.meta.createdAt),
+  );
+  const tiles: { label: string; value: number; unit: string; note: string; icon: ReactNode; hero?: boolean }[] = [
+    {
+      label: "도구 호출",
+      value: s.tools,
+      unit: "회",
+      note: `분당 ${(s.tools / minutes).toFixed(1)}회 · 사람 개입 0회`,
+      icon: <Terminal size={17} />,
+      hero: true,
+    },
+    {
+      label: "실행한 코드",
+      value: s.families.code || 0,
+      unit: "회",
+      note: "직접 작성한 풀이·분석 코드",
+      icon: <Braces size={17} />,
+    },
+    {
+      label: "네트워크 요청",
+      value: s.families.network || 0,
+      unit: "회",
+      note: "포털·문제 서버에 보낸 요청 명령",
+      icon: <Radio size={17} />,
+    },
+    {
+      label: "탐색한 파일",
+      value: s.fileCount,
+      unit: "개",
+      note: "명령으로 열거나 분석한 파일",
+      icon: <FileSearch size={17} />,
+    },
+    {
+      label: "작성·수정한 파일",
+      value: s.written,
+      unit: "개",
+      note: "풀이 코드·노트·결과물",
+      icon: <FilePen size={17} />,
+    },
+    {
+      label: "세운 가설",
+      value: s.findings.hypothesis || 0,
+      unit: "개",
+      note: `확인한 단서 ${clues}개`,
+      icon: <Lightbulb size={17} />,
+    },
+    {
+      label: "찾은 취약점",
+      value: s.findings.vulnerability || 0,
+      unit: "개",
+      note: `검증 결과 ${s.findings.result || 0}건`,
+      icon: <Bug size={17} />,
+    },
+    {
+      label: "문제당 평균 풀이",
+      value: solvedTimes.length
+        ? Math.round(solvedTimes.reduce((a, b) => a + b, 0) / solvedTimes.length / 1000)
+        : 0,
+      unit: "초",
+      note: Number.isFinite(firstSolve)
+        ? `첫 해결까지 ${formatDuration(firstSolve)} · 시도 ${attempted}문제`
+        : `시도 ${attempted}문제`,
+      icon: <Zap size={17} />,
+    },
+  ];
+  return (
+    <section className="x-metrics" aria-label="자동 처리량">
+      <header>
+        <span className="x-kicker">
+          <Activity size={13} />
+          자동 처리량
+        </span>
+        <p>에이전트가 사람의 개입 없이 처리한 작업량입니다.</p>
+      </header>
+      <div className="x-metric-grid">
+        {tiles.map((tile) => (
+          <MetricTile key={tile.label} {...tile} motion={motion} />
+        ))}
+      </div>
+      <div className="x-charts">
+        <Throughput activity={s.activity} running={running} createdAt={view.meta.createdAt} now={now} />
+        <CommandMix stats={s.families} />
+      </div>
+    </section>
+  );
+}
+function MetricTile({
+  label,
+  value,
+  unit,
+  note,
+  icon,
+  hero,
+  motion,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  note: string;
+  icon: ReactNode;
+  hero?: boolean;
+  motion: boolean;
+}) {
+  const shown = useCountUp(value, motion);
+  const formatted =
+    unit === "초" && value >= 60 ? formatDuration(shown * 1000) : shown.toLocaleString("ko-KR");
+  return (
+    <div className={`x-tile ${hero ? "hero" : ""}`}>
+      <span className="x-tile-label">
+        {icon}
+        {label}
+      </span>
+      <strong key={value}>
+        {formatted}
+        {!(unit === "초" && value >= 60) && <small>{unit}</small>}
+      </strong>
+      <p>{note}</p>
+    </div>
+  );
+}
+// 분 단위 도구 호출 수. 단일 시계열이라 범례 없이 제목이 계열을 설명한다.
+function Throughput({
+  activity,
+  running,
+  createdAt,
+  now,
+}: {
+  activity: number[];
+  running: boolean;
+  createdAt: number;
+  now: number;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const span = running
+    ? Math.max(activity.length, Math.floor((now - createdAt) / 60_000) + 1)
+    : activity.length;
+  const data = Array.from({ length: Math.max(span, 2) }, (_, i) => activity[i] || 0);
+  const w = 520,
+    h = 150,
+    pad = { l: 28, r: 8, t: 12, b: 22 };
+  const max = Math.max(4, ...data);
+  const x = (i: number) => pad.l + (i / (data.length - 1)) * (w - pad.l - pad.r);
+  const y = (v: number) => h - pad.b - (v / max) * (h - pad.t - pad.b);
+  const line = data.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const area = `${line}L${x(data.length - 1)},${h - pad.b}L${x(0)},${h - pad.b}Z`;
+  const peak = data.indexOf(Math.max(...data));
+  return (
+    <figure className="x-chart">
+      <figcaption>
+        분당 도구 호출
+        <span>최고 {data[peak]}회 · {peak + 1}분째</span>
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        role="img"
+        aria-label={`분당 도구 호출 추이, 최고 ${data[peak]}회`}
+        onMouseLeave={() => setHover(null)}
+        onMouseMove={(e) => {
+          const box = e.currentTarget.getBoundingClientRect();
+          const px = ((e.clientX - box.left) / box.width) * w;
+          const i = Math.round(((px - pad.l) / (w - pad.l - pad.r)) * (data.length - 1));
+          setHover(Math.max(0, Math.min(data.length - 1, i)));
+        }}
+      >
+        <defs>
+          <linearGradient id="x-area" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="#3987e5" stopOpacity="0.45" />
+            <stop offset="1" stopColor="#3987e5" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[0, 0.5, 1].map((t) => (
+          <g key={t}>
+            <line className="grid" x1={pad.l} x2={w - pad.r} y1={y(max * t)} y2={y(max * t)} />
+            <text className="axis" x={pad.l - 6} y={y(max * t) + 3} textAnchor="end">
+              {Math.round(max * t)}
+            </text>
+          </g>
+        ))}
+        <text className="axis" x={pad.l} y={h - 6}>
+          시작
+        </text>
+        <text className="axis" x={w - pad.r} y={h - 6} textAnchor="end">
+          {data.length}분
+        </text>
+        <path d={area} fill="url(#x-area)" />
+        <path d={line} className="line" />
+        {running && <circle className="live-dot" cx={x(data.length - 1)} cy={y(data.at(-1)!)} r="4" />}
+        {hover !== null && (
+          <g>
+            <line className="cross" x1={x(hover)} x2={x(hover)} y1={pad.t} y2={h - pad.b} />
+            <circle className="point" cx={x(hover)} cy={y(data[hover])} r="4.5" />
+          </g>
+        )}
+      </svg>
+      {hover !== null && (
+        <div className="x-tip" style={{ left: `${(x(hover) / w) * 100}%` }}>
+          <b>{hover + 1}분째</b>도구 호출 {data[hover]}회
+        </div>
+      )}
+    </figure>
+  );
+}
+function CommandMix({ stats }: { stats: Record<string, number> }) {
+  const rows = families.map((f) => ({ ...f, value: stats[f.key] || 0 }));
+  const total = rows.reduce((a, b) => a + b.value, 0);
+  const [hover, setHover] = useState("");
+  return (
+    <figure className="x-chart x-mix">
+      <figcaption>
+        실행한 명령 종류
+        <span>총 {total}회</span>
+      </figcaption>
+      <div className="x-mix-bar" role="img" aria-label={rows.map((r) => `${r.label} ${r.value}회`).join(", ")}>
+        {rows
+          .filter((r) => r.value)
+          .map((r) => (
+            <span
+              key={r.key}
+              style={{ flexGrow: r.value, background: r.color }}
+              className={hover && hover !== r.key ? "dim" : ""}
+              onMouseEnter={() => setHover(r.key)}
+              onMouseLeave={() => setHover("")}
+              title={`${r.label} ${r.value}회 (${Math.round((r.value / total) * 100)}%)`}
+            />
+          ))}
+        {!total && <span className="empty" />}
+      </div>
+      <ul className="x-mix-legend">
+        {rows.map((r) => (
+          <li
+            key={r.key}
+            className={hover && hover !== r.key ? "dim" : ""}
+            onMouseEnter={() => setHover(r.key)}
+            onMouseLeave={() => setHover("")}
+          >
+            <i style={{ background: r.color }} />
+            {r.label}
+            <b>{r.value}</b>
+            <small>{total ? `${Math.round((r.value / total) * 100)}%` : "–"}</small>
+          </li>
+        ))}
+      </ul>
+    </figure>
+  );
+}
+
+function ProblemBoard({
+  view,
+  running,
+  now,
+}: {
+  view: View;
+  running: boolean;
+  now: number;
+}) {
+  const current = view.focus.challenge || view.currentChallenge;
+  return (
+    <section className="x-board" aria-label="문제 보드">
+      <PanelTitle
+        icon={<Flag size={16} />}
+        title="문제 보드"
+        tail={<span className="count-badge">{view.challenges.length}</span>}
+      />
+      {view.challenges.length ? (
+        <div className="x-board-grid">
+          {view.challenges.map((c) => {
+            const status = boardStatus(c, running);
+            const stat = view.stats.problems[c.name];
+            const took =
+              stat?.startedAt &&
+              (stat.endedAt || (status === "working" ? now : undefined));
+            const isCurrent = running && c.name === current && status === "working";
+            return (
+              <article
+                key={c.name}
+                className={`x-card ${status} ${isCurrent ? "current" : ""}`}
+                title={c.description}
+              >
+                <header>
+                  <span className="x-card-cat">{category(c.category)}</span>
+                  {c.points !== undefined && <span className="x-card-pts">{c.points}</span>}
+                </header>
+                <strong>{c.name}</strong>
+                <footer>
+                  <span className={`x-state ${status}`}>
+                    <BoardIcon status={status} />
+                    {boardLabels[status]}
+                  </span>
+                  <small>
+                    {took && stat?.startedAt
+                      ? `${formatDuration(took - stat.startedAt)} · 도구 ${stat.tools}`
+                      : status === "held"
+                        ? heldReason(c, running)
+                        : ""}
+                  </small>
+                </footer>
+                {status === "held" && took && <p className="x-card-reason">{heldReason(c, running)}</p>}
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="x-board-empty">
+          <Search size={20} />
+          에이전트가 대회 문제 목록을 확인하면 문제가 이곳에 나타납니다.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Timeline({ view, showFlags }: { view: View; showFlags: boolean }) {
+  const items = [...view.story].reverse().slice(0, 60);
+  return (
+    <section className="x-timeline panel" aria-label="풀이 타임라인">
+      <PanelTitle
+        icon={<Activity size={17} />}
+        title="풀이 타임라인"
+        tail={<span className="x-sub">발견 → 가설 → 검증 → 제출</span>}
+      />
+      <ol>
+        {items.length ? (
+          items.map((item) => <TimelineItem key={item.id} item={item} showFlags={showFlags} />)
+        ) : (
+          <li className="x-tl-empty">실행이 시작되면 에이전트의 발견과 판단이 시간순으로 쌓입니다.</li>
+        )}
+      </ol>
+    </section>
+  );
+}
+function TimelineItem({ item, showFlags }: { item: Story; showFlags: boolean }) {
+  const tone =
+    item.kind === "submission"
+      ? item.outcome === "accepted"
+        ? "good"
+        : "warn"
+      : item.kind === "solution"
+        ? "good"
+        : item.kind === "blocked"
+          ? "warn"
+          : item.kind === "finding"
+            ? item.type || "finding"
+            : item.kind;
+  const icon =
+    item.kind === "tools" ? (
+      <Terminal size={14} />
+    ) : item.kind === "finding" ? (
+      item.type === "vulnerability" ? (
+        <Bug size={14} />
+      ) : item.type === "hypothesis" ? (
+        <Lightbulb size={14} />
+      ) : (
+        <Search size={14} />
+      )
+    ) : item.kind === "submission" || item.kind === "solution" ? (
+      <ShieldCheck size={14} />
+    ) : item.kind === "candidate" ? (
+      <Flag size={14} />
+    ) : item.kind === "blocked" ? (
+      <PauseCircle size={14} />
+    ) : item.kind === "select" ? (
+      <Radar size={14} />
+    ) : (
+      <Search size={14} />
+    );
+  if (item.kind === "tools") {
+    const parts = families
+      .filter((f) => item.families?.[f.key])
+      .map((f) => `${f.label} ${item.families![f.key]}`);
+    return (
+      <li className={`x-tl tools`}>
+        <time>{clock(item.at)}</time>
+        <span className="x-tl-icon">{icon}</span>
+        <div>
+          <strong>
+            명령 {item.count}개 실행
+            {item.until && item.until > item.at ? (
+              <small> · {formatDuration(item.until - item.at)}</small>
+            ) : null}
+          </strong>
+          <span className="x-tl-mix">
+            {families
+              .filter((f) => item.families?.[f.key])
+              .map((f) => (
+                <i key={f.key} style={{ flexGrow: item.families![f.key], background: f.color }} />
+              ))}
+          </span>
+          <p>{parts.join(" · ")}</p>
+        </div>
+      </li>
+    );
+  }
+  const tag =
+    item.kind === "finding"
+      ? findingLabels[item.type || ""] || "발견"
+      : item.kind === "select"
+        ? category(item.type || "misc")
+        : item.kind === "catalog"
+          ? "준비"
+          : item.kind === "candidate"
+            ? "후보"
+            : item.kind === "submission"
+              ? "판정"
+              : item.kind === "solution"
+                ? "해결"
+                : "보류";
+  return (
+    <li className={`x-tl ${tone}`}>
+      <time>{clock(item.at)}</time>
+      <span className="x-tl-icon">{icon}</span>
+      <div>
+        <strong>
+          <em>{tag}</em>
+          {safe(item.title, showFlags)}
+          {item.challenge && item.kind !== "select" && <small> · {item.challenge}</small>}
+        </strong>
+        {item.detail && item.kind !== "candidate" && <p>{safe(item.detail, showFlags)}</p>}
+      </div>
+    </li>
+  );
+}
+
+function SolutionCards({ view, showFlags }: { view: View; showFlags: boolean }) {
+  return (
+    <section className="x-solutions panel" aria-label="해결 카드">
+      <PanelTitle
+        icon={<ShieldCheck size={17} />}
+        title="해결 카드"
+        tail={<span className="count-badge">{view.solutions.length}</span>}
+      />
+      {view.solutions.length ? (
+        <div className="x-solution-list">
+          {[...view.solutions].reverse().map((solution) => {
+            const problem = view.challenges.find((c) => c.name === solution.challenge);
+            const stat = view.stats.problems[solution.challenge];
+            return (
+              <article className="x-solution" key={solution.challenge}>
+                <header>
+                  <span className="x-solution-check">
+                    <Check size={15} />
+                  </span>
+                  <div>
+                    <strong>{solution.challenge}</strong>
+                    <small>
+                      {problem ? `${category(problem.category)} · ` : ""}
+                      {stat?.startedAt && stat.endedAt
+                        ? `${formatDuration(stat.endedAt - stat.startedAt)} · 도구 ${stat.tools}회`
+                        : clock(solution.at)}
+                    </small>
+                  </div>
+                  {problem?.status === "accepted" && <span className="x-accepted">정답</span>}
+                </header>
+                <dl>
+                  <div>
+                    <dt>핵심 원리</dt>
+                    <dd>{safe(solution.summary, showFlags)}</dd>
+                  </div>
+                  <div>
+                    <dt>풀이 과정</dt>
+                    <dd>{safe(solution.method, showFlags)}</dd>
+                  </div>
+                  {solution.evidence && (
+                    <div>
+                      <dt>확인 근거</dt>
+                      <dd>{safe(solution.evidence, showFlags)}</dd>
+                    </div>
+                  )}
+                </dl>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="x-solutions-empty">
+          <ShieldCheck size={26} strokeWidth={1.3} />
+          문제를 해결하면 무엇이 취약했고 어떻게 풀었는지가 카드로 정리됩니다.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DetailSection({
+  view,
+  running,
+  showFlags,
+  busy,
+  hint,
+  onHint,
+  onSendHint,
+  onError,
+}: {
+  view: View;
+  running: boolean;
+  showFlags: boolean;
+  busy: boolean;
+  hint: string;
+  onHint: (value: string) => void;
+  onSendHint: (event: FormEvent) => void;
+  onError: (message: string) => void;
+}) {
+  const [tab, setTab] = useState<"terminal" | "files">("terminal");
+  const [selectedTool, setSelectedTool] = useState("");
+  const [artifact, setArtifact] = useState<{ name: string; text: string } | null>(null);
+  const currentTool = view.tools.findLast((t) => t.status === "running") || view.tools.at(-1);
+  const terminal: Tool | undefined =
+    view.tools.find((t) => t.id === selectedTool) || currentTool;
+  const feed = view.events
+    .filter(
+      (e) =>
+        [
+          "message",
+          "catalog",
+          "progress",
+          "finding",
+          "challenge",
+          "candidate",
+          "approval",
+          "submission",
+          "solution",
+          "operator",
+          "error",
+        ].includes(e.kind) ||
+        (e.kind === "tool" && e.data.status !== "running"),
+    )
+    .slice(-35)
+    .reverse();
+  return (
+    <section className="x-detail" aria-label="상세 지표">
+      <header className="x-detail-head">
+        <h2>상세 지표</h2>
+        <p>
+          실행 로그와 작업 파일, 원본 이벤트를 그대로 보여줍니다. 도구 실행 {view.toolCount}회(대시보드
+          보고 {view.stats.reports}회 포함) · 종료 코드 오류 {view.nonzeroCount}회 · 출력 토큰{" "}
+          {count(view.tokens.output)}(응답 단위로 집계)
+        </p>
+      </header>
+      <div className="x-detail-grid">
+        <section className="stage panel">
+          <div className="stage-header">
+            <div className="stage-tabs" role="tablist" aria-label="상세 화면">
+              <button role="tab" aria-selected={tab === "terminal"} onClick={() => setTab("terminal")}>
+                <Terminal size={15} />
+                실행 로그<span>{view.tools.length}</span>
+              </button>
+              <button role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}>
+                <FileCode2 size={15} />
+                작업 파일<span>{view.artifacts.length}</span>
+              </button>
+            </div>
+            <span className="stage-status">
+              <span className={`dot ${running ? "blue" : ""}`} />
+              {running ? "작업 중" : "저장된 기록"}
+            </span>
+          </div>
+          {tab === "terminal" && (
+            <div className="terminal-view">
+              <div className="terminal-list">
+                {view.tools
+                  .slice(-24)
+                  .reverse()
+                  .map((t) => (
+                    <button
+                      key={t.id}
+                      className={terminal?.id === t.id ? "tool-choice selected" : "tool-choice"}
+                      onClick={() => setSelectedTool(t.id)}
+                    >
+                      <Icon type={t.family} />
+                      <span>{safe(shortCommand(t.command), showFlags).slice(0, 52)}</span>
+                      <span className={`tool-dot ${t.status}`} />
+                    </button>
+                  ))}
+                {!view.tools.length && <p className="empty-small">실행한 명령이 여기에 나타납니다.</p>}
+              </div>
+              <div className="terminal-code">
+                <div className="terminal-meta">
+                  <span>{terminal ? familyLabels[terminal.family] || terminal.family : "명령 실행"}</span>
+                  <span>
+                    {terminal?.endedAt
+                      ? `${((terminal.endedAt - terminal.startedAt) / 1000).toFixed(1)}s · exit ${terminal.exitCode ?? "—"}`
+                      : terminal
+                        ? "실행 중"
+                        : "대기 중"}
+                  </span>
+                </div>
+                <pre className="command-line">
+                  {terminal ? `$ ${safe(terminal.command, showFlags)}` : "$ 에이전트의 실제 명령을 기다리는 중"}
+                </pre>
+                <pre className="command-output">
+                  {terminal
+                    ? safe(
+                        terminal.output ||
+                          (terminal.status === "running"
+                            ? "프로세스가 실행 중입니다…"
+                            : terminal.status === "stopped"
+                              ? "중단됨 · 완전한 결과를 받지 못했습니다."
+                              : "출력 없이 종료되었습니다."),
+                        showFlags,
+                      )
+                    : "가짜 명령이나 시뮬레이션 출력을 표시하지 않습니다."}
+                </pre>
+                {terminal?.status === "running" && <span className="terminal-cursor" />}
+              </div>
+            </div>
+          )}
+          {tab === "files" && (
+            <div className="file-list">
+              {view.artifacts.length ? (
+                view.artifacts.map((f) => (
+                  <button
+                    key={f.path}
+                    onClick={async () => {
+                      try {
+                        const r = await fetch(
+                          `/api/runs/${view.meta.id}/artifact?path=${encodeURIComponent(f.path)}`,
+                        );
+                        if (!r.ok) throw new Error("파일을 열 수 없습니다.");
+                        setArtifact({ name: f.path, text: await r.text() });
+                      } catch (e) {
+                        onError(String(e));
+                      }
+                    }}
+                  >
+                    <FileCode2 size={17} />
+                    <span>{f.path}</span>
+                    <small>{count(f.bytes)} B</small>
+                    <ArrowUpRight size={14} />
+                  </button>
+                ))
+              ) : (
+                <div className="empty-state">
+                  <FileCode2 size={28} />
+                  <h3>작업 파일이 아직 없습니다</h3>
+                  <p>문제 파일, 풀이 코드, 실행 결과를 실제 작업 폴더에서 가져옵니다.</p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+        <section className="activity panel">
+          <PanelTitle
+            icon={<Activity size={17} />}
+            title="원본 이벤트"
+            tail={
+              <div className="activity-actions">
+                <a href={`/api/runs/${view.meta.id}/log`} className="text-button">
+                  <Download size={14} />
+                  로그 저장
+                </a>
+              </div>
+            }
+          />
+          <div className="feed">
+            {feed.length ? (
+              feed.map((e) => (
+                <EventRow
+                  key={e.seq}
+                  event={e}
+                  showFlags={showFlags}
+                  onTool={() => {
+                    if (e.data.id) {
+                      setTab("terminal");
+                      setSelectedTool(e.data.id);
+                    }
+                  }}
+                />
+              ))
+            ) : (
+              <div className="empty-feed">
+                <span className="dot" />
+                <p>실행 이벤트가 시간순으로 쌓입니다.</p>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+      <form className="operator-bar" onSubmit={onSendHint}>
+        <MessageSquare size={18} />
+        <input
+          id="hint"
+          aria-label="에이전트에게 지시"
+          value={hint}
+          onChange={(e) => onHint(e.target.value)}
+          placeholder={
+            running
+              ? "필요할 때만 개입하세요. 현재 턴을 중단하고 같은 대화에서 이어갑니다…"
+              : "후속 지시를 입력해 같은 대화를 이어가세요…"
+          }
+          disabled={!view.threadId}
+        />
+        <button
+          type="submit"
+          className="button primary compact"
+          disabled={!view.threadId || busy || !hint.trim()}
+        >
+          <Send size={15} />
+          {running ? "지시 전달" : "이어하기"}
+        </button>
+      </form>
       {artifact && (
         <div className="artifact-overlay">
           <section>
@@ -1696,11 +2487,7 @@ export default function App() {
               icon={<FileCode2 size={17} />}
               title={artifact.name}
               tail={
-                <button
-                  className="icon-btn"
-                  aria-label="파일 닫기"
-                  onClick={() => setArtifact(null)}
-                >
+                <button className="icon-btn" aria-label="파일 닫기" onClick={() => setArtifact(null)}>
                   <X size={20} />
                 </button>
               }
@@ -1709,478 +2496,10 @@ export default function App() {
           </section>
         </div>
       )}
-    </div>
-  );
-}
-function ContestFlow({
-  view,
-  running,
-}: {
-  view: View | null;
-  running: boolean;
-}) {
-  const catalogReady = !!view?.catalogReady;
-  const current = view?.challenges.find(
-    (challenge) => challenge.name === view.currentChallenge,
-  );
-  const solveActive =
-    catalogReady &&
-    !!current &&
-    ["working", "candidate", "blocked"].includes(current.status);
-  const analysisState = catalogReady
-    ? "complete"
-    : running
-      ? "active"
-      : "waiting";
-  const solveState = !catalogReady
-    ? "locked"
-    : solveActive
-      ? running
-        ? "active"
-        : "waiting"
-      : "ready";
-  return (
-    <section className="contest-flow" aria-label="대회 운영 단계">
-      <article className={`flow-phase ${analysisState}`}>
-        <span className="flow-number">01</span>
-        <div className="flow-icon">
-          {catalogReady ? <Check size={20} /> : <LayoutDashboard size={20} />}
-        </div>
-        <div>
-          <span>대회 준비</span>
-          <strong>대회·문제 목록 분석</strong>
-          <p>
-            {catalogReady
-              ? `문제 ${view?.challenges.length || 0}개 확인 완료`
-              : "카테고리·점수·접속 대상 조사"}
-          </p>
-        </div>
-        <b>{catalogReady ? "완료" : running ? "확인 중" : "대기"}</b>
-      </article>
-      <span className={`flow-bridge ${catalogReady ? "ready" : ""}`}>
-        <ArrowRight size={17} />
-      </span>
-      <article className={`flow-phase ${solveState}`}>
-        <span className="flow-number">02</span>
-        <div className="flow-icon">
-          <Code2 size={20} />
-        </div>
-        <div>
-          <span>문제 풀이</span>
-          <strong>선택 문제 분석·풀이</strong>
-          <p>
-            {!catalogReady
-              ? "준비 단계 완료 후 활성화"
-              : solveActive
-                ? `${current?.name} · ${stageLabels[view!.focus.stage]}`
-                : view?.meta.config.mode === "guided"
-                  ? "문제 카드를 선택해 한 문제만 실행"
-                  : "다음 미해결 문제 자동 선택"}
-          </p>
-        </div>
-        <b>
-          {!catalogReady
-            ? "준비 전"
-            : solveActive
-              ? running
-                ? "진행 중"
-                : "일시 중지"
-              : "선택 대기"}
-        </b>
-      </article>
     </section>
   );
 }
 
-function SolutionsPanel({
-  view,
-  showFlags,
-}: {
-  view: View | null;
-  showFlags: boolean;
-}) {
-  if (!view?.solutions.length) return null;
-  return (
-    <section className="solutions panel" aria-label="해결한 문제 요약">
-      <PanelTitle
-        icon={<CheckCheck size={18} />}
-        title="문제별 풀이 요약"
-        tail={<span className="count-badge">{view.solutions.length}</span>}
-      />
-      <div className="solution-grid">
-        {[...view.solutions].reverse().map((solution) => (
-          <article className="solution-card" key={solution.challenge}>
-            <header>
-              <span className="solution-check">
-                <Check size={15} />
-              </span>
-              <div>
-                <strong>{solution.challenge}</strong>
-                <small>
-                  {new Date(solution.at).toLocaleTimeString("ko-KR")}
-                </small>
-              </div>
-            </header>
-            <h3>{safe(solution.summary, showFlags)}</h3>
-            <p>{safe(solution.method, showFlags)}</p>
-            {solution.evidence && (
-              <div className="solution-evidence">
-                <Shield size={12} />
-                {safe(solution.evidence, showFlags)}
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function Metric({
-  title,
-  value,
-  unit,
-  icon,
-  note,
-  accent,
-}: {
-  title: string;
-  value: string;
-  unit: string;
-  icon: ReactNode;
-  note: string;
-  accent?: boolean;
-}) {
-  return (
-    <div className={`metric ${accent ? "accent" : ""}`}>
-      <div className="metric-label">
-        {title}
-        {icon}
-      </div>
-      <div className="metric-number">
-        {value}
-        <span>{unit}</span>
-      </div>
-      <p>{note}</p>
-    </div>
-  );
-}
-function IntelligenceMap({
-  view,
-  running,
-  showFlags,
-}: {
-  view: View | null;
-  running: boolean;
-  showFlags: boolean;
-}) {
-  const stageOrder: ProgressStage[] = [
-    "survey",
-    "ready",
-    "inspect",
-    "model",
-    "exploit",
-    "verify",
-    "submit",
-    "blocked",
-    "complete",
-  ];
-  const focus = view?.focus || {
-    challenge: "",
-    stage: "survey" as const,
-    summary: "대회 주소를 입력하면 문제 목록부터 확인합니다.",
-    source: "inferred" as const,
-    updatedAt: 0,
-  };
-  const challenge = focus.challenge || view?.currentChallenge || "";
-  const problem = view?.challenges.find((item) => item.name === challenge);
-  const allFindings =
-    view?.findings.filter((item) => item.challenge === challenge) || [];
-  const findings = allFindings
-    .filter((item) => !["hypothesis", "blocker", "result"].includes(item.type))
-    .slice(-3);
-  const hypotheses = allFindings
-    .filter((item) => ["hypothesis", "blocker", "result"].includes(item.type))
-    .slice(-3);
-  const selection = view?.events.findLast(
-    (event) =>
-      event.kind === "challenge" &&
-      event.data.challenge === challenge &&
-      event.data.source !== "workspace",
-  );
-  const latestMessage = view?.events.findLast(
-    (event) => event.kind === "message" && event.seq >= (selection?.seq || 0),
-  );
-  const isOperation = (tool: Tool) =>
-    !/\bnode\b.*(?:\/server\/report\.mjs|SEAL_LIVE_REPORTER)/.test(
-      tool.command,
-    );
-  const currentTool =
-    view?.tools.findLast(
-      (tool) => tool.status === "running" && isOperation(tool),
-    ) || view?.tools.findLast(isOperation);
-  const solution = view?.solutions.find((item) => item.challenge === challenge);
-  const stageIcons: Record<ProgressStage, string> = {
-    survey: "browser",
-    ready: "catalog",
-    inspect: "inspect",
-    model: "reverse",
-    exploit: "code",
-    verify: "candidate",
-    submit: "submission",
-    blocked: "error",
-    complete: "submission",
-  };
-  const observed = new Set<ProgressStage>(
-    view?.events.flatMap((event) =>
-      event.kind === "progress" &&
-      event.data.stage &&
-      (!challenge || event.data.challenge === challenge)
-        ? [event.data.stage]
-        : [],
-    ) || [],
-  );
-  observed.add(focus.stage);
-  const executionLabel = currentTool
-    ? `${familyLabels[currentTool.family] || currentTool.family} · ${
-        currentTool.status === "running" ? "실행 중" : "최근 실행"
-      }`
-    : "실행 대기";
-  return (
-    <section
-      className={`intel-board operations-board ${running ? "is-live" : ""}`}
-      aria-label="확인된 정보에서 실제 문제 풀이로 이어지는 현재 작업"
-    >
-      <header className="intel-header operations-header">
-        <div>
-          <span className="eyebrow">실시간 풀이 현황</span>
-          <strong>단서에서 검증까지</strong>
-        </div>
-        <div className="intel-meta">
-          <span className={`source-tag ${focus.source}`}>
-            {focus.source === "agent" ? "진행 보고" : "도구 활동 기준"}
-          </span>
-          <span>
-            {view?.meta.config.mode === "guided"
-              ? "문제 직접 선택"
-              : "순서대로 진행"}
-          </span>
-        </div>
-      </header>
-      <div className="operations-flow">
-        <section className="evidence-lane" aria-label="확인된 정보">
-          <header>
-            <Search size={17} />
-            <div>
-              <span>01 · 파악한 내용</span>
-              <strong>구조와 단서</strong>
-            </div>
-            <b>{findings.length + (problem?.target ? 1 : 0)}</b>
-          </header>
-          <div className="evidence-stack">
-            {problem?.target && (
-              <article className="evidence-chip surface">
-                <span>접속 대상</span>
-                <strong>문제 서비스</strong>
-                <p>{safe(problem.target, showFlags)}</p>
-              </article>
-            )}
-            {findings.map((finding) => (
-              <article
-                className={`evidence-chip ${finding.type}`}
-                key={finding.id}
-              >
-                <span>{findingLabels[finding.type] || finding.type}</span>
-                <strong>{safe(finding.label, showFlags)}</strong>
-                <p>{safe(finding.detail, showFlags)}</p>
-                {finding.evidence && (
-                  <small>{safe(finding.evidence, showFlags)}</small>
-                )}
-              </article>
-            ))}
-            {!findings.length && !problem?.target && (
-              <div className="lane-empty">
-                <Search size={18} />
-                <span>
-                  아직 정리된 단서가 없습니다. 파일과 응답을 확인하면 여기에
-                  남깁니다.
-                </span>
-              </div>
-            )}
-          </div>
-        </section>
-        <div className={`operations-link ${running ? "flowing" : ""}`}>
-          <span />
-          <ArrowRight size={17} />
-          <small>분석</small>
-        </div>
-        <section
-          className={`agent-live-card ${running ? "working" : ""}`}
-          aria-label="현재 문제 풀이 상황"
-        >
-          <div className="agent-live-head">
-            <div className="live-agent-avatar">
-              <span />
-              <Icon type={stageIcons[focus.stage]} size={29} />
-            </div>
-            <div>
-              <span>02 · {stageLabels[focus.stage]}</span>
-              <strong>
-                {challenge ||
-                  (view?.catalogReady
-                    ? "풀 문제를 선택하세요"
-                    : "대회 살펴보기")}
-              </strong>
-              <div className="problem-badges">
-                {problem ? (
-                  <>
-                    <span>
-                      {categoryLabels[problem.category.toLowerCase()] ||
-                        problem.category}
-                    </span>
-                    {problem.points !== undefined && <b>{problem.points}점</b>}
-                  </>
-                ) : (
-                  <span>
-                    {view?.catalogReady
-                      ? `문제 ${view.challenges.length}개 확인`
-                      : "문제 목록 확인 중"}
-                  </span>
-                )}
-              </div>
-            </div>
-            <b className={running ? "live" : ""}>
-              <span className={`dot ${running ? "amber pulse" : ""}`} />
-              {running ? "진행 중" : "최근 기록"}
-            </b>
-          </div>
-          {problem?.description && (
-            <p className="challenge-description">
-              {safe(problem.description, showFlags)}
-            </p>
-          )}
-          <div key={latestMessage?.seq} className="agent-live-message">
-            <PublicMessage>
-              {safe(
-                latestMessage?.detail ||
-                  focus.summary ||
-                  "풀이를 시작하면 진행 내용을 여기에 보여드립니다.",
-                showFlags,
-              )}
-            </PublicMessage>
-          </div>
-          <div className="agent-live-context">
-            <span>
-              <Radio size={12} />
-              {stageLabels[focus.stage]}
-            </span>
-            <span>
-              {latestMessage
-                ? `최근 보고 ${new Date(latestMessage.at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`
-                : "보고 대기 중"}
-            </span>
-          </div>
-        </section>
-        <div className={`operations-link ${running ? "flowing" : ""}`}>
-          <span />
-          <ArrowRight size={17} />
-          <small>검증</small>
-        </div>
-        <section className="execution-lane" aria-label="문제 풀이 실행과 검증">
-          <header>
-            <Terminal size={17} />
-            <div>
-              <span>03 · 시도와 결과</span>
-              <strong>가설과 검증</strong>
-            </div>
-          </header>
-          <div className="hypothesis-stack">
-            {hypotheses.map((item) => (
-              <article className={`hypothesis-card ${item.type}`} key={item.id}>
-                <Icon
-                  type={
-                    item.type === "blocker"
-                      ? "error"
-                      : item.type === "result"
-                        ? "submission"
-                        : "inspect"
-                  }
-                  size={16}
-                />
-                <div>
-                  <span>{findingLabels[item.type]}</span>
-                  <strong>{safe(item.label, showFlags)}</strong>
-                  <p>{safe(item.detail, showFlags)}</p>
-                  {item.evidence && (
-                    <small>{safe(item.evidence, showFlags)}</small>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
-          <div className="execution-status">
-            <span>{executionLabel}</span>
-            <code>
-              {currentTool
-                ? safe(shortCommand(currentTool.command), showFlags).slice(
-                    0,
-                    180,
-                  )
-                : "도구 실행을 기다리는 중"}
-            </code>
-          </div>
-          {focus.next && (
-            <div className="execution-next">
-              <ArrowRight size={13} />
-              <span>
-                <b>다음 할 일</b>
-                {safe(focus.next, showFlags)}
-              </span>
-            </div>
-          )}
-          {problem?.status === "candidate" && problem.flag && (
-            <div className="execution-result candidate">
-              <Flag size={13} />
-              <span>후보 확보</span>
-              <code>{safe(problem.flag, showFlags)}</code>
-            </div>
-          )}
-          {problem?.status === "accepted" && (
-            <div className="execution-result accepted">
-              <CheckCheck size={14} />
-              <span>정답 확인</span>
-            </div>
-          )}
-          {problem?.decision === "rejected" && (
-            <div className="execution-result rejected">
-              <X size={13} />
-              <span>운영자가 제출 거부</span>
-            </div>
-          )}
-          {solution && (
-            <div className="execution-result solved">
-              <Check size={13} />
-              <span>{safe(solution.summary, showFlags)}</span>
-            </div>
-          )}
-        </section>
-      </div>
-      <div className="stage-radar" aria-label="관찰된 단계">
-        {stageOrder.map((stage) => (
-          <span
-            className={`${observed.has(stage) ? "seen" : ""} ${
-              focus.stage === stage ? "active" : ""
-            }`}
-            key={stage}
-          >
-            <i />
-            {stageLabels[stage]}
-          </span>
-        ))}
-      </div>
-    </section>
-  );
-}
 const PublicMessage = memo(function PublicMessage({
   children,
 }: {
@@ -2272,7 +2591,7 @@ function EventRow({
         )}
         {event.kind === "tool" && (
           <button className="text-button" onClick={onTool}>
-            실행 기록에서 보기
+            실행 로그에서 보기
             <ArrowUpRight size={13} />
           </button>
         )}

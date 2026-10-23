@@ -214,6 +214,50 @@ export const challengeSchema = z.object({
   target: z.string().optional(),
 });
 export type Challenge = z.infer<typeof challengeSchema>;
+// 이벤트 목록은 최근 200개만 남기므로, 화면 지표는 별도로 누적한다.
+export const statsSchema = z.object({
+  tools: z.number(),
+  families: z.record(z.string(), z.number()),
+  files: z.array(z.string()),
+  fileCount: z.number(),
+  written: z.number(),
+  findings: z.record(z.string(), z.number()),
+  reports: z.number(),
+  submissions: z.number(),
+  activity: z.array(z.number()),
+  problems: z.record(
+    z.string(),
+    z.object({
+      tools: z.number(),
+      startedAt: z.number().optional(),
+      endedAt: z.number().optional(),
+    }),
+  ),
+});
+export type Stats = z.infer<typeof statsSchema>;
+export const storySchema = z.object({
+  id: z.number().int(),
+  at: z.number(),
+  kind: z.enum([
+    "catalog",
+    "select",
+    "finding",
+    "blocked",
+    "candidate",
+    "submission",
+    "solution",
+    "tools",
+  ]),
+  challenge: z.string(),
+  title: z.string(),
+  detail: z.string().optional(),
+  type: z.string().optional(),
+  outcome: z.string().optional(),
+  count: z.number().optional(),
+  families: z.record(z.string(), z.number()).optional(),
+  until: z.number().optional(),
+});
+export type Story = z.infer<typeof storySchema>;
 export const viewSchema = z.object({
   meta: metaSchema,
   status: runStatusSchema,
@@ -255,6 +299,8 @@ export const viewSchema = z.object({
   endedAt: z.number().nullable().optional(),
   activeMs: z.number(),
   artifacts: z.array(fileSchema),
+  stats: statsSchema,
+  story: z.array(storySchema),
 });
 export type View = z.infer<typeof viewSchema>;
 export const historySchema = z.array(
@@ -309,6 +355,72 @@ export function emptyView(meta: RunMeta): View {
     artifacts: [],
     toolCount: 0,
     nonzeroCount: 0,
+    stats: {
+      tools: 0,
+      families: {},
+      files: [],
+      fileCount: 0,
+      written: 0,
+      findings: {},
+      reports: 0,
+      submissions: 0,
+      activity: [],
+      problems: {},
+    },
+    story: [],
+  };
+}
+// 에이전트가 대시보드에 진행을 알리는 보고 명령은 풀이 작업으로 세지 않는다.
+export function isReporter(command: string) {
+  return /\bnode\b.*(?:\/server\/report\.mjs|SEAL_LIVE_REPORTER)/.test(command);
+}
+const systemPath = /^\/(?:bin|sbin|usr|dev|proc|sys|etc|lib\d*|opt)\//;
+const fileExt =
+  /^[^.].*\.(?:txt|md|py|sage|c|h|cc|cpp|rs|go|java|class|jar|apk|js|ts|php|rb|sh|asm|s|json|xml|ya?ml|csv|ini|cfg|conf|log|html?|bin|elf|out|so|exe|dll|o|img|dat|raw|enc|key|pem|der|pub|png|jpe?g|gif|bmp|pdf|zip|gz|tgz|xz|bz2|7z|tar|pcap|pcapng|wav|mp3|mp4|flag)$/i;
+// 명령 인자에 나타난 파일 경로. URL·IP·버전 문자열은 제외한다.
+export function commandFiles(command: string): string[] {
+  const body = command.replace(/^\/bin\/(?:ba)?sh -lc\s+/, "");
+  const found = new Set<string>();
+  const pattern =
+    /(?:^|[\s'"=(<>|;])((?:~|\.{1,2})?\/?[\w.@+-]+(?:\/[\w.@+-]+)*)(?=$|[\s'")<>|;,])/g;
+  for (const match of body.matchAll(pattern)) {
+    const token = match[1].replace(/^\.\//, "");
+    if (token.length < 3 || token.length > 160) continue;
+    const parts = token.split("/").filter(Boolean);
+    const name = parts.at(-1) || "";
+    const hasExt = /\.[A-Za-z][A-Za-z0-9]{0,7}$/.test(name);
+    // 확장자 없는 경로는 디렉터리 구조가 분명할 때만 파일로 본다(/bin, /api/submit 제외).
+    if (!hasExt && parts.length < (token.startsWith("/") ? 3 : 2)) continue;
+    // 디렉터리 없이 단독으로 쓰인 이름은 흔한 파일 확장자일 때만 센다(.text, obj.size 제외).
+    if (parts.length === 1 && !fileExt.test(name)) continue;
+    if (/^[\d.]+$/.test(name) || /^\d+\.\d+/.test(name)) continue;
+    if (systemPath.test(token) || token.startsWith("-")) continue;
+    if (/^\/api\/|^(?:application|text|image|multipart|audio|video)\//.test(token))
+      continue;
+    // 에이전트 자신의 스킬 문서는 문제 자료가 아니다.
+    if (/\/codex\/skills\//.test(token)) continue;
+    if (/^(?:python|node|pip|npm)\d*(?:\.\d+)*$/.test(name)) continue;
+    found.add(token);
+  }
+  return [...found];
+}
+function pushStory(v: View, item: Omit<Story, "id">, seq: number) {
+  v.story = [...v.story.slice(-299), { id: seq, ...item }];
+}
+function problemStat(v: View, name: string) {
+  return v.stats.problems[name] || { tools: 0 };
+}
+function setProblemStat(
+  v: View,
+  name: string,
+  patch: Partial<Stats["problems"][string]>,
+) {
+  v.stats = {
+    ...v.stats,
+    problems: {
+      ...v.stats.problems,
+      [name]: { ...problemStat(v, name), ...patch },
+    },
   };
 }
 function activitySummary(family: string) {
@@ -361,6 +473,64 @@ export function applyEvent(previous: View, event: LiveEvent): View {
       if (!found) v.toolCount++;
       if (item.status === "error" && found?.status !== "error")
         v.nonzeroCount++;
+      if (!found && isReporter(item.command))
+        v.stats = { ...v.stats, reports: v.stats.reports + 1 };
+      if (!found && !isReporter(item.command)) {
+        const files = new Set(v.stats.files);
+        const before = files.size;
+        // 같은 파일을 상대·절대 경로로 부르는 경우를 합치기 위해 문제별 파일명으로 센다.
+        for (const file of commandFiles(item.command))
+          files.add(`${v.currentChallenge}:${file.split("/").at(-1)}`);
+        const minute = Math.max(
+          0,
+          Math.min(599, Math.floor((event.at - v.meta.createdAt) / 60_000)),
+        );
+        const activity = [...v.stats.activity];
+        while (activity.length <= minute) activity.push(0);
+        activity[minute]++;
+        v.stats = {
+          ...v.stats,
+          tools: v.stats.tools + 1,
+          families: {
+            ...v.stats.families,
+            [item.family]: (v.stats.families[item.family] || 0) + 1,
+          },
+          files: [...files].slice(-2000),
+          fileCount: v.stats.fileCount + (files.size - before),
+          activity,
+        };
+        const owner = v.currentChallenge || "";
+        if (owner)
+          setProblemStat(v, owner, { tools: problemStat(v, owner).tools + 1 });
+        const last = v.story.at(-1);
+        if (last?.kind === "tools" && last.challenge === owner) {
+          v.story = [
+            ...v.story.slice(0, -1),
+            {
+              ...last,
+              count: (last.count || 0) + 1,
+              until: event.at,
+              families: {
+                ...last.families,
+                [item.family]: (last.families?.[item.family] || 0) + 1,
+              },
+            },
+          ];
+        } else
+          pushStory(
+            v,
+            {
+              at: event.at,
+              kind: "tools",
+              challenge: owner,
+              title: "명령 실행",
+              count: 1,
+              until: event.at,
+              families: { [item.family]: 1 },
+            },
+            event.seq,
+          );
+      }
       const currentProblem = v.challenges.find(
         (challenge) => challenge.name === v.currentChallenge,
       );
@@ -372,12 +542,19 @@ export function applyEvent(previous: View, event: LiveEvent): View {
         ) &&
         !(v.focus.source === "agent" && event.at - v.focus.updatedAt < 30_000)
       ) {
-        const stage: ProgressStage =
+        const inferred: ProgressStage =
           item.family === "reverse"
             ? "model"
             : item.family === "code"
               ? "exploit"
               : "inspect";
+        // 같은 문제 안에서는 도구로 추정한 단계가 이미 지난 단계로 되돌아가지 않게 한다.
+        const order: ProgressStage[] = ["inspect", "model", "exploit", "verify", "submit"];
+        const stage =
+          v.focus.challenge === v.currentChallenge &&
+          order.indexOf(v.focus.stage) > order.indexOf(inferred)
+            ? v.focus.stage
+            : inferred;
         v.focus = {
           challenge: v.currentChallenge,
           stage,
@@ -408,6 +585,17 @@ export function applyEvent(previous: View, event: LiveEvent): View {
       v.catalogReady = true;
       v.catalogSummary =
         d.summary || event.detail || `${d.problems?.length || 0}개 문제 확인`;
+      pushStory(
+        v,
+        {
+          at: event.at,
+          kind: "catalog",
+          challenge: "",
+          title: "문제 목록 확인",
+          detail: v.catalogSummary,
+        },
+        event.seq,
+      );
       const activeProblem = v.challenges.find(
         (problem) =>
           problem.name === v.currentChallenge &&
@@ -436,6 +624,18 @@ export function applyEvent(previous: View, event: LiveEvent): View {
         updatedAt: event.at,
       };
       if (d.challenge) v.currentChallenge = d.challenge;
+      if (stage.data === "blocked")
+        pushStory(
+          v,
+          {
+            at: event.at,
+            kind: "blocked",
+            challenge: v.focus.challenge,
+            title: "보류",
+            detail: v.focus.summary,
+          },
+          event.seq,
+        );
       if (d.challenge) {
         const problem = v.challenges.find((item) => item.name === d.challenge);
         if (problem && problem.status !== "accepted") {
@@ -466,6 +666,25 @@ export function applyEvent(previous: View, event: LiveEvent): View {
         source: d.source || "agent",
       };
       v.findings = [...v.findings.slice(-39), item];
+      v.stats = {
+        ...v.stats,
+        findings: {
+          ...v.stats.findings,
+          [item.type]: (v.stats.findings[item.type] || 0) + 1,
+        },
+      };
+      pushStory(
+        v,
+        {
+          at: event.at,
+          kind: "finding",
+          challenge: item.challenge,
+          title: item.label,
+          detail: item.detail,
+          type: item.type,
+        },
+        event.seq,
+      );
       break;
     }
     case "challenge":
@@ -543,6 +762,62 @@ export function applyEvent(previous: View, event: LiveEvent): View {
           updatedAt: event.at,
         };
       }
+      if (event.kind === "challenge" && !workspaceOnly) {
+        if (!problemStat(v, name).startedAt)
+          setProblemStat(v, name, { startedAt: event.at });
+        const lastSelect = v.story.findLast((s) => s.kind === "select");
+        if (lastSelect?.challenge !== name)
+          pushStory(
+            v,
+            {
+              at: event.at,
+              kind: "select",
+              challenge: name,
+              title: `${name} 풀이 시작`,
+              type: item.category,
+            },
+            event.seq,
+          );
+      } else if (event.kind === "candidate") {
+        pushStory(
+          v,
+          {
+            at: event.at,
+            kind: "candidate",
+            challenge: name,
+            title: "플래그 후보 확보",
+            detail: event.detail,
+          },
+          event.seq,
+        );
+      } else if (event.kind === "submission") {
+        v.stats = { ...v.stats, submissions: v.stats.submissions + 1 };
+        if (d.outcome === "accepted" && !problemStat(v, name).endedAt)
+          setProblemStat(v, name, { endedAt: event.at });
+        pushStory(
+          v,
+          {
+            at: event.at,
+            kind: "submission",
+            challenge: name,
+            title:
+              d.outcome === "accepted"
+                ? "정답 판정"
+                : d.outcome === "rejected"
+                  ? "오답 판정"
+                  : "제출",
+            detail: d.evidence,
+            outcome: d.outcome,
+          },
+          event.seq,
+        );
+      }
+      break;
+    }
+    case "notice": {
+      if (event.title !== "파일 변경") break;
+      const changed = (event.detail || "").split("\n").filter(Boolean).length;
+      v.stats = { ...v.stats, written: v.stats.written + changed };
       break;
     }
     case "approval": {
@@ -588,6 +863,19 @@ export function applyEvent(previous: View, event: LiveEvent): View {
             solution.challenge === d.challenge ? item : solution,
           )
         : [...v.solutions, item];
+      if (!problemStat(v, d.challenge).endedAt)
+        setProblemStat(v, d.challenge, { endedAt: event.at });
+      pushStory(
+        v,
+        {
+          at: event.at,
+          kind: "solution",
+          challenge: d.challenge,
+          title: d.summary,
+          detail: d.method,
+        },
+        event.seq,
+      );
       v.focus = {
         challenge: d.challenge,
         stage: "complete",
