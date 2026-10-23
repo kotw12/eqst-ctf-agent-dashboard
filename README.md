@@ -1,6 +1,6 @@
 # EQST CTF Agent — 경량 RunPod 배포물
 
-이 디렉터리는 `node seal-live/deploy/pack.mjs /absolute/ctf-harness /absolute/new/export`로 생성한 Git 업로드용 결과물입니다. 대시보드와 SEAL Codex 프로필만 포함합니다. 이전 실행·문제 파일·인증정보·CTF 분석 도구·BSK/Chromium은 포함하지 않습니다.
+이 공개 배포물은 `seal-live/deploy/pack.mjs`로 만든 대시보드와 SEAL Codex 프로필만 포함합니다. 이전 실행·문제 파일·인증정보·CTF 분석 도구·BSK/Chromium은 포함하지 않습니다.
 
 ## 전제
 
@@ -11,11 +11,11 @@
 
 ## 설치와 로그인
 
-배포물을 Git에 올린 뒤 Pod의 **같은 OS 사용자**에서:
+RunPod의 **같은 OS 사용자**에서:
 
 ```bash
 cd /workspace
-git clone <YOUR_PRIVATE_GIT_URL> eqst-agent
+git clone https://github.com/kotw12/eqst-ctf-agent-dashboard.git eqst-agent
 # 일반 ~/.codex 로그인이 아닌, SEAL이 사용할 분리된 홈에 로그인합니다.
 CODEX_HOME=/workspace/eqst-agent-state/codex codex login
 cd /workspace/eqst-agent
