@@ -2,6 +2,8 @@
 
 이 공개 배포물은 `seal-live/deploy/pack.mjs`로 만든 대시보드와 SEAL Codex 프로필만 포함합니다. 이전 실행·문제 파일·인증정보·CTF 분석 도구·BSK/Chromium은 포함하지 않습니다.
 
+운영·유지보수 담당자는 [인수인계 핸드아웃](MAINTAINER-HANDOFF.md)에서 구조, 인증, 도구 설치, 갱신·복구 절차를 확인한다.
+
 ## 전제
 
 - Ubuntu x86-64 CPU Pod, Node.js 22.19 이상과 npm, Git, **native Codex CLI**가 설치된 같은 OS 사용자. Codex 설치 버전은 이 배포물이 고정하지 않습니다.
