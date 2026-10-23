@@ -79,9 +79,9 @@ const initial: RunConfig = {
   model: "gpt-6-sol",
   effort: "high",
   fast: false,
-  yolo: false,
+  yolo: true,
   submissionMode: "manual",
-  browser: import.meta.env.VITE_DEFAULT_BROWSER !== "0",
+  browser: false,
   browserId: "",
   maxMinutes: 30,
   demo: false,
@@ -316,7 +316,7 @@ export default function App() {
   const [showFlags, setShowFlags] = useState(false),
     [motion, setMotion] = useState(true),
     [presenting, setPresenting] = useState(false);
-  const [tab, setTab] = useState<"browser" | "terminal" | "files">("browser"),
+  const [tab, setTab] = useState<"browser" | "terminal" | "files">("terminal"),
     [selectedTool, setSelectedTool] = useState("");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -651,17 +651,20 @@ export default function App() {
   function configureDemo() {
     setForm({
       ...initial,
-      title: "Signal Lab",
-      url: location.origin,
+      title: "EQST CTF",
+      url: "http://127.0.0.1:18081",
       demo: true,
-      effort: "low",
+      model: "gpt-6-sol",
+      effort: "max",
+      yolo: true,
       submissionMode: "auto",
-      browserId: health?.connected[0]?.instance_id || "",
-      maxMinutes: 10,
+      browser: false,
+      browserId: "",
+      maxMinutes: 180,
       prompt:
-        "로컬 데모 사이트의 두 문제를 브라우저에서 차례로 열어 분석하고 직접 풀어. 각 문제의 flag를 즉시 보고하고 해당 페이지의 Submit flag 버튼으로 한 번 제출해. Accepted 응답을 관찰한 후 다음 문제로 진행하고, 두 문제를 모두 시도했으면 결과를 요약해.",
+        "EQST HAL 로컬 대회 포털의 /api/challenges에서 문제 목록을 확인하고 한 문제씩 직접 풀어. 실행형 문제는 표시된 127.0.0.1 target에 HTTP/TCP 도구로 접속하고, 첨부파일이 있으면 포털에서 내려받아 분석해. 각 문제의 flag를 확보하면 즉시 보고하고 포털 /api/submit(JSON: agent, challenge, flag)으로 문제당 한 번 제출해 verdict를 확인한 뒤 다음 문제로 진행해. 모든 문제를 시도했으면 결과를 요약해.",
       rules:
-        "이 실행의 localhost 대회 URL만 대상. 실제 SEAL 실행이며 시뮬레이션 로그를 생성하지 말 것. 다른 사용자 파일과 탭에는 접근하지 말 것.",
+        "EQST HAL 포털(http://127.0.0.1:18081)과 그 문제 target만 대상. 브라우저 없이 HTTP/TCP 도구만 사용. 포털 관리자 기능·다른 사용자 파일·외부 write-up 검색 금지.",
     });
     setSetup(true);
     setError("");
@@ -1606,37 +1609,6 @@ export default function App() {
               <label className="toggle">
                 <input
                   type="checkbox"
-                  checked={form.browser}
-                  onChange={(e) =>
-                    setForm({ ...form, browser: e.target.checked })
-                  }
-                />
-                <span>
-                  <Globe2 size={16} />
-                  브라우저 화면 연결
-                </span>
-              </label>
-              {form.browser && (
-                <label>
-                  브라우저 프로필
-                  <select
-                    value={form.browserId}
-                    onChange={(e) =>
-                      setForm({ ...form, browserId: e.target.value })
-                    }
-                  >
-                    <option value="">연결된 단일 브라우저</option>
-                    {health?.connected.map((b) => (
-                      <option value={b.instance_id} key={b.instance_id}>
-                        {b.label || b.browser_name} · {b.instance_id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <label className="toggle">
-                <input
-                  type="checkbox"
                   checked={form.fast}
                   onChange={(e) => setForm({ ...form, fast: e.target.checked })}
                 />
@@ -1669,8 +1641,9 @@ export default function App() {
               <label className="toggle">
                 <input
                   type="checkbox"
-                  checked={form.yolo}
-                  onChange={(e) => setForm({ ...form, yolo: e.target.checked })}
+                  checked
+                  disabled
+                  readOnly
                 />
                 <span>
                   <Shield size={16} />
@@ -1679,7 +1652,6 @@ export default function App() {
               </label>
               <p className="option-help warning">
                 승인·native sandbox 해제. 격리된 CTF 환경에서만 선택하세요.
-                브라우저 자체 확인 절차는 유지됩니다.
               </p>
             </div>
           </div>

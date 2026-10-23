@@ -143,9 +143,7 @@ app.get("/api/health", async (_req, res) => {
     execute(process.env.CTF_CODEX_BIN || "codex", ["--version"]).catch(
       (e) => `Unavailable: ${String(e)}`,
     ),
-    execute(process.env.BSK_BIN || "bsk", ["browsers", "--json"]).catch(
-      () => "",
-    ),
+    Promise.resolve(""),
   ]);
   const parsed = connectedBrowserSchema.safeParse(
     browser ? JSON.parse(browser) : [],
@@ -161,6 +159,13 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/runs", (_req, res) => res.json(store.list()));
 app.post("/api/runs", (req, res) => {
   const config = configSchema.parse(req.body);
+  // 이 배포에는 브라우저 도구(BSK)가 없으므로 브라우저 연결을 끄고, SEAL은 항상 --yolo로 실행한다
+  config.browser = false;
+  config.browserId = "";
+  config.yolo = true;
+  // Pod 안에서는 자기 공인 주소로 되돌아오는 연결이 막혀 있어, 공개 포털 주소는 같은 Pod의 로컬 포털로 바꾼다
+  if (process.env.PORTAL_PUBLIC_HOST && new URL(config.url).hostname === process.env.PORTAL_PUBLIC_HOST)
+    config.url = process.env.DEMO_CTF_URL || "http://127.0.0.1:18081";
   if (runner.activeId) {
     res
       .status(409)
@@ -168,21 +173,13 @@ app.post("/api/runs", (req, res) => {
     return;
   }
   if (config.demo) {
-    config.title = "Signal Lab";
-    const requestOrigin = publicOrigin?.origin || `http://${req.get("host")}`;
-    config.url = requestOrigin;
-    const id = store.create(config);
-    const meta = store.get(id).meta;
-    meta.config.url = `${requestOrigin}/arena/${id}`;
-    fs.writeFileSync(
-      path.join(store.dir(id), "meta.json"),
-      JSON.stringify(meta, null, 2),
-      { mode: 0o600 },
-    );
-    // start the already-created demo via the same single-run lifecycle.
-    runner.startCreated(id);
-    res.status(201).json({ id });
-  } else res.status(201).json({ id: runner.create(config) });
+    // 로컬 데모는 같은 Pod의 EQST HAL 포털로 고정한다
+    config.title = "EQST CTF";
+    config.url = process.env.DEMO_CTF_URL || "http://127.0.0.1:18081";
+    config.model = "gpt-6-sol";
+    config.effort = "max";
+  }
+  res.status(201).json({ id: runner.create(config) });
 });
 app.get("/api/runs/:id", (req, res) =>
   res.json(store.get(String(req.params.id))),

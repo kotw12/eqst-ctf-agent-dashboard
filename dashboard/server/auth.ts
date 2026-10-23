@@ -8,6 +8,7 @@ const BLOCK_MS = 60 * 1000;
 
 type Attempt = { failures: number; blockedUntil: number };
 type Session = { user: string; expiresAt: number };
+type Account = { user: string; userHash: Buffer; passwordHash: Buffer };
 
 type AuthRequest = {
   headers: { cookie?: string };
@@ -35,9 +36,7 @@ function cookieValue(request: AuthRequest) {
 export class DashboardAuth {
   private readonly sessions = new Map<string, Session>();
   private readonly attempts = new Map<string, Attempt>();
-  private readonly user: string;
-  private readonly userHash: Buffer;
-  private readonly passwordHash: Buffer;
+  private readonly accounts: Account[];
   private readonly secureCookie: boolean;
 
   constructor(
@@ -45,9 +44,21 @@ export class DashboardAuth {
     password = process.env.AUTH_PASSWORD || "eqst",
     secureCookie = process.env.AUTH_SECURE_COOKIE === "1",
   ) {
-    this.user = user;
-    this.userHash = digest(user);
-    this.passwordHash = digest(password);
+    // AUTH_USERS="id:password,id2:password2"가 있으면 그 계정들을, 없으면 AUTH_USER/AUTH_PASSWORD 하나를 쓴다
+    const pairs = (process.env.AUTH_USERS || "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .map((entry): [string, string] => {
+        const separator = entry.indexOf(":");
+        return separator > 0 ? [entry.slice(0, separator), entry.slice(separator + 1)] : ["", ""];
+      })
+      .filter(([id, secret]) => id !== "" && secret !== "");
+    const accounts: [string, string][] = pairs.length ? pairs : [[user, password]];
+    this.accounts = accounts.map(([id, secret]) => ({
+      user: id,
+      userHash: digest(id),
+      passwordHash: digest(secret),
+    }));
     this.secureCookie = secureCookie;
   }
 
@@ -93,9 +104,14 @@ export class DashboardAuth {
       attempt.failures = 0;
       attempt.blockedUntil = 0;
     }
-    const validUser = equalSecret(id, this.userHash);
-    const validPassword = equalSecret(password, this.passwordHash);
-    const valid = validUser && validPassword;
+    // 모든 계정을 끝까지 비교해, 어느 계정이 맞았는지 응답 시간으로 드러나지 않게 한다
+    let account: Account | undefined;
+    for (const candidate of this.accounts) {
+      const validUser = equalSecret(id, candidate.userHash);
+      const validPassword = equalSecret(password, candidate.passwordHash);
+      if (validUser && validPassword) account = candidate;
+    }
+    const valid = account !== undefined;
     if (!valid) {
       attempt.failures++;
       if (attempt.failures >= MAX_FAILURES) {
@@ -116,7 +132,7 @@ export class DashboardAuth {
       if (oldest) this.sessions.delete(oldest);
     }
     const token = randomBytes(32).toString("base64url");
-    this.sessions.set(token, { user: this.user, expiresAt: now + SESSION_MS });
+    this.sessions.set(token, { user: account!.user, expiresAt: now + SESSION_MS });
     response.setHeader(
       "Set-Cookie",
       `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}${this.secureCookie ? "; Secure" : ""}`,
