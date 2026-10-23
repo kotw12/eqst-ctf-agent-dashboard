@@ -930,11 +930,7 @@ export default function App() {
               </section>
             ))}
           <footer>
-            <span>
-              <Shield size={13} />
-              SEAL 에이전트 한 개로 진행
-            </span>
-            <span>화면의 모든 수치는 실제 실행 이벤트에서 집계합니다.</span>
+            <span />
             <span>EQST CTF Agent</span>
           </footer>
         </main>
@@ -1241,14 +1237,13 @@ function HomePage({
             AI 기반 자율형 CTF 에이전트
           </span>
           <h1>
-            스스로 탐색하고, 분석하고,
-            <br />
-            <em>직접 풀어 제출합니다.</em>
+            EQST AI <em>CTF Agent</em>
           </h1>
           <p>
-            EQST CTF Agent는 사람의 개입 없이 대회 문제 목록을 확인하고, 문제마다
-            파일과 서비스를 탐색해 취약점을 찾고, 풀이 코드를 실행해 얻은 플래그를
-            포털에 제출합니다. 그 전 과정을 이 화면에서 실시간으로 볼 수 있습니다.
+            EQST AI CTF Agent는 사람의 개입 없이 AI가 자율적으로 문제를 탐색하고
+            분석해 취약점을 찾아냅니다. 발견한 단서로 가설을 세우고, 풀이 코드를 직접
+            작성·실행해 검증한 뒤, 확보한 플래그를 제출하고 정답 여부까지 확인합니다.
+            실시간 대시보드를 통해 AI agent가 문제를 풀이하는 과정을 확인할 수 있습니다.
           </p>
           <div className="x-hero-actions">
             {live ? (
