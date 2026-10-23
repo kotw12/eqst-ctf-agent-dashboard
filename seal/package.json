@@ -1,0 +1,22 @@
+{
+  "name": "@kotw12/seal-ctf-profile",
+  "version": "0.2.0-beta.1",
+  "description": "Human-directed CTF profile for native Codex",
+  "type": "module",
+  "license": "MIT",
+  "private": false,
+  "bin": {
+    "seal": "bin/seal.mjs"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "bin/",
+    "codex/",
+    "core/",
+    "skills/",
+    "README.md",
+    "LICENSE"
+  ]
+}

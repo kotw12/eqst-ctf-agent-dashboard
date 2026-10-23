@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+: "${SEAL_LIVE_BSK_REAL:?SEAL_LIVE_BSK_REAL is required}"
+: "${SEAL_LIVE_BSK_LOCK:?SEAL_LIVE_BSK_LOCK is required}"
+
+exec 9>"$SEAL_LIVE_BSK_LOCK"
+if [ "${SEAL_LIVE_BSK_NOWAIT:-0}" = "1" ]; then
+  if ! flock -n 9; then
+    printf '%s\n' 'SEAL_LIVE_BSK_BUSY' >&2
+    exit 75
+  fi
+else
+  if ! flock -w 45 9; then
+    printf '%s\n' 'SEAL_LIVE_BSK_LOCK_TIMEOUT' >&2
+    exit 75
+  fi
+fi
+exec "$SEAL_LIVE_BSK_REAL" "$@"
