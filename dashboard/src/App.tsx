@@ -4,6 +4,7 @@ import {
   useState,
   memo,
   type FormEvent,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
@@ -46,6 +47,7 @@ import {
   Square,
   Terminal,
   Unplug,
+  TrendingUp,
   Waves,
   X,
   Zap,
@@ -174,12 +176,27 @@ const stageLabels: Record<ProgressStage, string> = {
 };
 // 명령 종류 색상: dataviz 기본 팔레트 dark 단계(어두운 배경에서 검증 통과).
 const families: { key: string; label: string; color: string }[] = [
-  { key: "network", label: "네트워크 요청", color: "#3987e5" },
-  { key: "code", label: "코드 실행", color: "#d95926" },
-  { key: "inspect", label: "파일 확인", color: "#199e70" },
-  { key: "reverse", label: "리버싱 도구", color: "#c98500" },
-  { key: "shell", label: "터미널", color: "#d55181" },
+  { key: "network", label: "네트워크 요청", color: "#4590ee" },
+  { key: "code", label: "코드 실행", color: "#e0632c" },
+  { key: "inspect", label: "파일 확인", color: "#1aa577" },
+  { key: "reverse", label: "보안 분석 도구", color: "#c98500" },
+  { key: "shell", label: "터미널", color: "#e45a9c" },
 ];
+const familyColor = Object.fromEntries(families.map((f) => [f.key, f.color]));
+// 분 단위 실측값을 최대 count개 구간으로 합친다. 실행이 길어도 전체 구간이 한 그래프에 들어온다.
+function bucketize(values: number[], span: number, count: number) {
+  const size = Math.max(1, Math.ceil(span / count));
+  return Array.from({ length: Math.ceil(span / size) }, (_, i) =>
+    values.slice(i * size, (i + 1) * size).reduce((a, b) => a + b, 0),
+  );
+}
+function runSpan(activity: number[], running: boolean, createdAt: number, now: number) {
+  return Math.max(
+    running ? Math.floor((now - createdAt) / 60_000) + 1 : activity.length,
+    activity.length,
+    2,
+  );
+}
 const familyLabels: Record<string, string> = {
   ...Object.fromEntries(families.map((f) => [f.key, f.label])),
   browser: "브라우저",
@@ -1778,56 +1795,79 @@ function MetricsPanel({
       .filter((p) => p.endedAt)
       .map((p) => p.endedAt! - view.meta.createdAt),
   );
-  const tiles: { label: string; value: number; unit: string; note: string; icon: ReactNode; hero?: boolean }[] = [
+  const span = Math.max(
+    runSpan(s.activity, running, view.meta.createdAt, now),
+    ...Object.values(s.series).map((values) => values.length),
+  );
+  // 타일 그래프는 실행 전체를 같은 시간 구간으로 나눈 실측 증가량이다.
+  const trend = (values: number[] = []) => ({
+    spark: bucketize(values, span, 16),
+    recent: values.slice(Math.max(0, span - 5), span).reduce((a, b) => a + b, 0),
+  });
+  const tiles: Omit<TileProps, "motion" | "running">[] = [
     {
       label: "도구 호출",
       value: s.tools,
       unit: "회",
       note: `분당 ${(s.tools / minutes).toFixed(1)}회 · 사람 개입 0회`,
-      icon: <Terminal size={17} />,
+      icon: <Terminal size={20} />,
+      color: "#45e3d1",
       hero: true,
+      ...trend(s.activity),
     },
     {
       label: "실행한 코드",
       value: s.families.code || 0,
       unit: "회",
       note: "직접 작성한 풀이·분석 코드",
-      icon: <Braces size={17} />,
+      icon: <Braces size={20} />,
+      color: familyColor.code,
+      ...trend(s.series["fam:code"]),
     },
     {
       label: "네트워크 요청",
       value: s.families.network || 0,
       unit: "회",
       note: "포털·문제 서버에 보낸 요청 명령",
-      icon: <Radio size={17} />,
+      icon: <Radio size={20} />,
+      color: familyColor.network,
+      ...trend(s.series["fam:network"]),
     },
     {
       label: "탐색한 파일",
       value: s.fileCount,
       unit: "개",
       note: "명령으로 열거나 분석한 파일",
-      icon: <FileSearch size={17} />,
+      icon: <FileSearch size={20} />,
+      color: familyColor.inspect,
+      ...trend(s.series.files),
     },
     {
       label: "작성·수정한 파일",
       value: s.written,
       unit: "개",
       note: "풀이 코드·노트·결과물",
-      icon: <FilePen size={17} />,
+      icon: <FilePen size={20} />,
+      color: "#e8c33a",
+      ...trend(s.series.written),
     },
     {
       label: "세운 가설",
       value: s.findings.hypothesis || 0,
       unit: "개",
       note: `확인한 단서 ${clues}개`,
-      icon: <Lightbulb size={17} />,
+      icon: <Lightbulb size={20} />,
+      color: "#a98bff",
+      ...trend(s.series["find:hypothesis"]),
     },
     {
       label: "찾은 취약점",
       value: s.findings.vulnerability || 0,
       unit: "개",
       note: `검증 결과 ${s.findings.result || 0}건`,
-      icon: <Bug size={17} />,
+      icon: <Bug size={20} />,
+      color: "#ff6b5e",
+      ...trend(s.series["find:vulnerability"]),
     },
     {
       label: "문제당 평균 풀이",
@@ -1838,7 +1878,11 @@ function MetricsPanel({
       note: Number.isFinite(firstSolve)
         ? `첫 해결까지 ${formatDuration(firstSolve)} · 시도 ${attempted}문제`
         : `시도 ${attempted}문제`,
-      icon: <Zap size={17} />,
+      icon: <Zap size={20} />,
+      color: "#6ec3ff",
+      // 이 타일의 막대는 시간 흐름이 아니라 해결한 문제별 풀이 시간(초)이다.
+      spark: solvedTimes.map((ms) => Math.round(ms / 1000)),
+      sparkLabel: "해결한 문제별 풀이 시간",
     },
   ];
   return (
@@ -1852,104 +1896,174 @@ function MetricsPanel({
       </header>
       <div className="x-metric-grid">
         {tiles.map((tile) => (
-          <MetricTile key={tile.label} {...tile} motion={motion} />
+          <MetricTile key={tile.label} {...tile} motion={motion} running={running} />
         ))}
       </div>
       <div className="x-charts">
-        <Throughput activity={s.activity} running={running} createdAt={view.meta.createdAt} now={now} />
+        <Throughput activity={s.activity} series={s.series} span={span} running={running} />
         <CommandMix stats={s.families} />
       </div>
     </section>
   );
 }
+type TileProps = {
+  label: string;
+  value: number;
+  unit: string;
+  note: string;
+  icon: ReactNode;
+  color: string;
+  hero?: boolean;
+  spark: number[];
+  sparkLabel?: string;
+  recent?: number;
+  motion: boolean;
+  running: boolean;
+};
 function MetricTile({
   label,
   value,
   unit,
   note,
   icon,
+  color,
   hero,
+  spark,
+  sparkLabel,
+  recent,
   motion,
-}: {
-  label: string;
-  value: number;
-  unit: string;
-  note: string;
-  icon: ReactNode;
-  hero?: boolean;
-  motion: boolean;
-}) {
+  running,
+}: TileProps) {
   const shown = useCountUp(value, motion);
   const formatted =
     unit === "초" && value >= 60 ? formatDuration(shown * 1000) : shown.toLocaleString("ko-KR");
   return (
-    <div className={`x-tile ${hero ? "hero" : ""}`}>
+    <div className={`x-tile ${hero ? "hero" : ""}`} style={{ "--c": color } as CSSProperties}>
       <span className="x-tile-label">
         {icon}
         {label}
       </span>
-      <strong key={value}>
-        {formatted}
-        {!(unit === "초" && value >= 60) && <small>{unit}</small>}
-      </strong>
+      {running && recent !== undefined && recent > 0 && (
+        <span className="x-tile-delta" title="최근 5분 동안 늘어난 양">
+          <TrendingUp size={13} />+{recent.toLocaleString("ko-KR")}
+          <small>최근 5분</small>
+        </span>
+      )}
+      <div className="x-tile-row">
+        <strong key={value}>
+          {formatted}
+          {!(unit === "초" && value >= 60) && <small>{unit}</small>}
+        </strong>
+        <Spark values={spark} label={sparkLabel || `${label} 시간대별 증가량`} unit={unit} />
+      </div>
       <p>{note}</p>
     </div>
   );
 }
-// 분 단위 도구 호출 수. 단일 시계열이라 범례 없이 제목이 계열을 설명한다.
+// 타일 하단의 작은 막대그래프. 0인 구간은 바닥 점선으로만 표시한다.
+function Spark({ values, label, unit }: { values: number[]; label: string; unit: string }) {
+  if (!values.length) return <div className="x-spark empty" aria-hidden="true" />;
+  const w = 132,
+    h = 40,
+    gap = 2;
+  const max = Math.max(1, ...values);
+  const bar = Math.min(10, (w - gap * (values.length - 1)) / values.length);
+  const left = w - values.length * (bar + gap) + gap;
+  return (
+    <svg
+      className="x-spark"
+      viewBox={`0 0 ${w} ${h}`}
+      role="img"
+      aria-label={`${label}: ${values.join(", ")}${unit}`}
+    >
+      {values.map((v, i) => {
+        const x = left + i * (bar + gap);
+        if (!v) return <rect key={i} className="zero" x={x} y={h - 2} width={bar} height={2} rx={1} />;
+        const height = Math.max(4, (v / max) * h);
+        return (
+          <rect
+            key={i}
+            x={x}
+            y={h - height}
+            width={bar}
+            height={height}
+            rx={2}
+            style={{ opacity: 0.45 + (0.55 * (i + 1)) / values.length }}
+          >
+            <title>
+              {v}
+              {unit}
+            </title>
+          </rect>
+        );
+      })}
+    </svg>
+  );
+}
+// 시간 구간별 도구 호출 수를 명령 종류로 쌓은 막대그래프. 색은 옆 "실행한 명령 종류" 범례와 같다.
 function Throughput({
   activity,
+  series,
+  span,
   running,
-  createdAt,
-  now,
 }: {
   activity: number[];
+  series: Record<string, number[]>;
+  span: number;
   running: boolean;
-  createdAt: number;
-  now: number;
 }) {
   const [hover, setHover] = useState<number | null>(null);
-  const span = running
-    ? Math.max(activity.length, Math.floor((now - createdAt) / 60_000) + 1)
-    : activity.length;
-  const data = Array.from({ length: Math.max(span, 2) }, (_, i) => activity[i] || 0);
-  const w = 520,
-    h = 150,
-    pad = { l: 28, r: 8, t: 12, b: 22 };
-  const max = Math.max(4, ...data);
-  const x = (i: number) => pad.l + (i / (data.length - 1)) * (w - pad.l - pad.r);
+  const size = Math.max(1, Math.ceil(span / 30));
+  const keys = [...families.map((f) => f.key), "browser"];
+  const stacks = keys.map((key) => bucketize(series[`fam:${key}`] || [], span, 30));
+  const totals = bucketize(activity, span, 30);
+  // 이전 기록처럼 종류별 분 단위 값이 없으면 합계만 한 색으로 그린다.
+  const known = stacks.reduce((sum, values) => sum + values.reduce((a, b) => a + b, 0), 0);
+  const columns = totals.map((total, i) =>
+    known
+      ? keys.map((key, k) => ({ key, value: stacks[k][i] || 0 })).filter((c) => c.value)
+      : total
+        ? [{ key: "all", value: total }]
+        : [],
+  );
+  const perMinute = Array.from({ length: span }, (_, i) => activity[i] || 0);
+  const peak = perMinute.indexOf(Math.max(...perMinute));
+  const w = 560,
+    h = 190,
+    pad = { l: 30, r: 6, t: 10, b: 24 };
+  const max = Math.max(4, ...totals);
+  const slot = (w - pad.l - pad.r) / totals.length;
+  const bar = Math.min(26, slot * 0.72);
+  const x = (i: number) => pad.l + i * slot + (slot - bar) / 2;
   const y = (v: number) => h - pad.b - (v / max) * (h - pad.t - pad.b);
-  const line = data.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  const area = `${line}L${x(data.length - 1)},${h - pad.b}L${x(0)},${h - pad.b}Z`;
-  const peak = data.indexOf(Math.max(...data));
+  const range = (i: number) =>
+    size === 1 ? `${i + 1}분째` : `${i * size + 1}~${Math.min(span, (i + 1) * size)}분`;
   return (
-    <figure className="x-chart">
+    <figure className="x-chart x-throughput">
       <figcaption>
-        분당 도구 호출
-        <span>최고 {data[peak]}회 · {peak + 1}분째</span>
+        <span className="x-chart-title">
+          {size === 1 ? "분당 도구 호출" : `${size}분 단위 도구 호출`}
+        </span>
+        <span className="x-chart-stat">
+          <b>{perMinute[peak]}</b>회 <small>분당 최고 · {peak + 1}분째</small>
+        </span>
       </figcaption>
       <svg
         viewBox={`0 0 ${w} ${h}`}
         role="img"
-        aria-label={`분당 도구 호출 추이, 최고 ${data[peak]}회`}
+        aria-label={`시간대별 도구 호출, 분당 최고 ${perMinute[peak]}회`}
         onMouseLeave={() => setHover(null)}
         onMouseMove={(e) => {
           const box = e.currentTarget.getBoundingClientRect();
           const px = ((e.clientX - box.left) / box.width) * w;
-          const i = Math.round(((px - pad.l) / (w - pad.l - pad.r)) * (data.length - 1));
-          setHover(Math.max(0, Math.min(data.length - 1, i)));
+          const i = Math.floor((px - pad.l) / slot);
+          setHover(i >= 0 && i < totals.length ? i : null);
         }}
       >
-        <defs>
-          <linearGradient id="x-area" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="#3987e5" stopOpacity="0.45" />
-            <stop offset="1" stopColor="#3987e5" stopOpacity="0" />
-          </linearGradient>
-        </defs>
         {[0, 0.5, 1].map((t) => (
           <g key={t}>
             <line className="grid" x1={pad.l} x2={w - pad.r} y1={y(max * t)} y2={y(max * t)} />
-            <text className="axis" x={pad.l - 6} y={y(max * t) + 3} textAnchor="end">
+            <text className="axis" x={pad.l - 7} y={y(max * t) + 4} textAnchor="end">
               {Math.round(max * t)}
             </text>
           </g>
@@ -1958,21 +2072,51 @@ function Throughput({
           시작
         </text>
         <text className="axis" x={w - pad.r} y={h - 6} textAnchor="end">
-          {data.length}분
+          {span}분
         </text>
-        <path d={area} fill="url(#x-area)" />
-        <path d={line} className="line" />
-        {running && <circle className="live-dot" cx={x(data.length - 1)} cy={y(data.at(-1)!)} r="4" />}
         {hover !== null && (
-          <g>
-            <line className="cross" x1={x(hover)} x2={x(hover)} y1={pad.t} y2={h - pad.b} />
-            <circle className="point" cx={x(hover)} cy={y(data[hover])} r="4.5" />
-          </g>
+          <rect className="hover-band" x={pad.l + hover * slot} y={pad.t} width={slot} height={h - pad.t - pad.b} />
+        )}
+        {columns.map((column, i) => {
+          let top = h - pad.b;
+          return (
+            <g key={i} className={hover !== null && hover !== i ? "dim" : ""}>
+              {column.map((c, k) => {
+                const height = (c.value / max) * (h - pad.t - pad.b);
+                top -= height;
+                const last = k === column.length - 1;
+                return (
+                  <rect
+                    key={c.key}
+                    x={x(i)}
+                    y={top + (last ? 0 : 1)}
+                    width={bar}
+                    height={Math.max(1, height - (last ? 0 : 1))}
+                    rx={last ? 3 : 0}
+                    fill={familyColor[c.key] || "#45e3d1"}
+                  />
+                );
+              })}
+            </g>
+          );
+        })}
+        {running && totals.length > 0 && (
+          <circle className="live-dot" cx={x(totals.length - 1) + bar / 2} cy={y(totals.at(-1)!) - 8} r="4" />
         )}
       </svg>
       {hover !== null && (
-        <div className="x-tip" style={{ left: `${(x(hover) / w) * 100}%` }}>
-          <b>{hover + 1}분째</b>도구 호출 {data[hover]}회
+        <div className="x-tip" style={{ left: `${((x(hover) + bar / 2) / w) * 100}%` }}>
+          <b>
+            {range(hover)} · {totals[hover]}회
+          </b>
+          {columns[hover]
+            .filter((c) => c.key !== "all")
+            .map((c) => (
+              <span key={c.key}>
+                <i style={{ background: familyColor[c.key] || "#45e3d1" }} />
+                {familyLabels[c.key] || c.key} {c.value}
+              </span>
+            ))}
         </div>
       )}
     </figure>
@@ -1981,43 +2125,72 @@ function Throughput({
 function CommandMix({ stats }: { stats: Record<string, number> }) {
   const rows = families.map((f) => ({ ...f, value: stats[f.key] || 0 }));
   const total = rows.reduce((a, b) => a + b.value, 0);
+  const top = Math.max(1, ...rows.map((r) => r.value));
   const [hover, setHover] = useState("");
+  const r = 62,
+    circumference = 2 * Math.PI * r;
+  let offset = 0;
   return (
     <figure className="x-chart x-mix">
       <figcaption>
-        실행한 명령 종류
-        <span>총 {total}회</span>
+        <span className="x-chart-title">실행한 명령 종류</span>
+        <span className="x-chart-stat">
+          <small>총</small> <b>{total.toLocaleString("ko-KR")}</b>회
+        </span>
       </figcaption>
-      <div className="x-mix-bar" role="img" aria-label={rows.map((r) => `${r.label} ${r.value}회`).join(", ")}>
-        {rows
-          .filter((r) => r.value)
-          .map((r) => (
-            <span
-              key={r.key}
-              style={{ flexGrow: r.value, background: r.color }}
-              className={hover && hover !== r.key ? "dim" : ""}
-              onMouseEnter={() => setHover(r.key)}
+      <div className="x-mix-body">
+        <div className="x-donut">
+          <svg viewBox="0 0 160 160" role="img" aria-label={rows.map((row) => `${row.label} ${row.value}회`).join(", ")}>
+            <circle cx="80" cy="80" r={r} className="track" />
+            {rows
+              .filter((row) => row.value)
+              .map((row) => {
+                const length = (row.value / total) * circumference;
+                const gap = rows.filter((x) => x.value).length > 1 ? 2.5 : 0;
+                const segment = (
+                  <circle
+                    key={row.key}
+                    cx="80"
+                    cy="80"
+                    r={r}
+                    stroke={row.color}
+                    strokeDasharray={`${Math.max(0.5, length - gap)} ${circumference}`}
+                    strokeDashoffset={-offset}
+                    className={hover && hover !== row.key ? "dim" : ""}
+                    onMouseEnter={() => setHover(row.key)}
+                    onMouseLeave={() => setHover("")}
+                  >
+                    <title>{`${row.label} ${row.value}회 (${Math.round((row.value / total) * 100)}%)`}</title>
+                  </circle>
+                );
+                offset += length;
+                return segment;
+              })}
+          </svg>
+          <div>
+            <strong>{total.toLocaleString("ko-KR")}</strong>
+            <span>총 명령</span>
+          </div>
+        </div>
+        <ul className="x-mix-legend">
+          {rows.map((row) => (
+            <li
+              key={row.key}
+              className={hover && hover !== row.key ? "dim" : ""}
+              onMouseEnter={() => setHover(row.key)}
               onMouseLeave={() => setHover("")}
-              title={`${r.label} ${r.value}회 (${Math.round((r.value / total) * 100)}%)`}
-            />
+            >
+              <i style={{ background: row.color }} />
+              <span>{row.label}</span>
+              <em>
+                <u style={{ width: `${(row.value / top) * 100}%`, background: row.color }} />
+              </em>
+              <b>{row.value}</b>
+              <small>{total ? `${Math.round((row.value / total) * 100)}%` : "–"}</small>
+            </li>
           ))}
-        {!total && <span className="empty" />}
+        </ul>
       </div>
-      <ul className="x-mix-legend">
-        {rows.map((r) => (
-          <li
-            key={r.key}
-            className={hover && hover !== r.key ? "dim" : ""}
-            onMouseEnter={() => setHover(r.key)}
-            onMouseLeave={() => setHover("")}
-          >
-            <i style={{ background: r.color }} />
-            {r.label}
-            <b>{r.value}</b>
-            <small>{total ? `${Math.round((r.value / total) * 100)}%` : "–"}</small>
-          </li>
-        ))}
-      </ul>
     </figure>
   );
 }
