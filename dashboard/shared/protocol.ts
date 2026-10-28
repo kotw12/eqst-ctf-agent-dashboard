@@ -225,6 +225,8 @@ export const statsSchema = z.object({
   reports: z.number(),
   submissions: z.number(),
   activity: z.array(z.number()),
+  // 지표별 분 단위 증가량(명령 종류 fam:*, 파일 files·written, 발견 find:*). 그래프는 이 실측값만 그린다.
+  series: z.record(z.string(), z.array(z.number())).default({}),
   problems: z.record(
     z.string(),
     z.object({
@@ -365,6 +367,7 @@ export function emptyView(meta: RunMeta): View {
       reports: 0,
       submissions: 0,
       activity: [],
+      series: {},
       problems: {},
     },
     story: [],
@@ -422,6 +425,21 @@ function setProblemStat(
       [name]: { ...problemStat(v, name), ...patch },
     },
   };
+}
+function runMinute(v: View, at: number) {
+  return Math.max(0, Math.min(599, Math.floor((at - v.meta.createdAt) / 60_000)));
+}
+function bumpSeries(v: View, at: number, counts: Record<string, number>) {
+  const minute = runMinute(v, at);
+  const series = { ...v.stats.series };
+  for (const [key, n] of Object.entries(counts)) {
+    if (!n) continue;
+    const values = [...(series[key] || [])];
+    while (values.length <= minute) values.push(0);
+    values[minute] += n;
+    series[key] = values;
+  }
+  v.stats = { ...v.stats, series };
 }
 function activitySummary(family: string) {
   const summaries: Record<string, string> = {
@@ -481,10 +499,7 @@ export function applyEvent(previous: View, event: LiveEvent): View {
         // 같은 파일을 상대·절대 경로로 부르는 경우를 합치기 위해 문제별 파일명으로 센다.
         for (const file of commandFiles(item.command))
           files.add(`${v.currentChallenge}:${file.split("/").at(-1)}`);
-        const minute = Math.max(
-          0,
-          Math.min(599, Math.floor((event.at - v.meta.createdAt) / 60_000)),
-        );
+        const minute = runMinute(v, event.at);
         const activity = [...v.stats.activity];
         while (activity.length <= minute) activity.push(0);
         activity[minute]++;
@@ -499,6 +514,10 @@ export function applyEvent(previous: View, event: LiveEvent): View {
           fileCount: v.stats.fileCount + (files.size - before),
           activity,
         };
+        bumpSeries(v, event.at, {
+          [`fam:${item.family}`]: 1,
+          files: files.size - before,
+        });
         const owner = v.currentChallenge || "";
         if (owner)
           setProblemStat(v, owner, { tools: problemStat(v, owner).tools + 1 });
@@ -673,6 +692,7 @@ export function applyEvent(previous: View, event: LiveEvent): View {
           [item.type]: (v.stats.findings[item.type] || 0) + 1,
         },
       };
+      bumpSeries(v, event.at, { [`find:${item.type}`]: 1 });
       pushStory(
         v,
         {
@@ -818,6 +838,7 @@ export function applyEvent(previous: View, event: LiveEvent): View {
       if (event.title !== "파일 변경") break;
       const changed = (event.detail || "").split("\n").filter(Boolean).length;
       v.stats = { ...v.stats, written: v.stats.written + changed };
+      bumpSeries(v, event.at, { written: changed });
       break;
     }
     case "approval": {
