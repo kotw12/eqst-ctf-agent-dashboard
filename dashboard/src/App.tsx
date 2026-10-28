@@ -47,7 +47,9 @@ import {
   Square,
   Terminal,
   Unplug,
+  RefreshCw,
   TrendingUp,
+  Users,
   Waves,
   X,
   Zap,
@@ -113,8 +115,9 @@ const demoConfig: RunConfig = {
 const authSchema = z.object({
   authenticated: z.boolean(),
   user: z.string().optional(),
+  admin: z.boolean().optional(),
 });
-type Page = "home" | "run" | "history";
+type Page = "home" | "run" | "history" | "audit";
 const labels: Record<RunStatus, string> = {
   starting: "준비 중",
   running: "진행 중",
@@ -473,6 +476,7 @@ export default function App() {
       "checking" | "anonymous" | "authenticated"
     >("checking"),
     [authUser, setAuthUser] = useState(""),
+    [isAdmin, setIsAdmin] = useState(false),
     [loginId, setLoginId] = useState("eqst"),
     [loginPassword, setLoginPassword] = useState(""),
     [loginError, setLoginError] = useState(""),
@@ -515,7 +519,7 @@ export default function App() {
   function go(next: Page, id = runId.current) {
     setPage(next);
     const query =
-      next === "run" && id ? `?run=${id}` : next === "history" ? "?page=history" : "";
+      next === "run" && id ? `?run=${id}` : next === "history" || next === "audit" ? `?page=${next}` : "";
     window.history.replaceState({}, "", `${location.pathname}${query}`);
     window.scrollTo({ top: 0 });
   }
@@ -572,7 +576,8 @@ export default function App() {
     } else {
       // 진행 중인 실행이 있으면 메인 화면에서 바로 보여줄 수 있게 연결만 해 둔다.
       if (bootstrap.activeId) await selectRun(bootstrap.activeId);
-      go(params.get("page") === "history" ? "history" : "home");
+      const requestedPage = params.get("page");
+      go(requestedPage === "history" || requestedPage === "audit" ? requestedPage : "home");
     }
     setHealth(healthSchema.parse(await api("/api/health")));
   }
@@ -598,6 +603,7 @@ export default function App() {
       }
       const state = authSchema.parse(json);
       setAuthUser(state.user || loginId);
+      setIsAdmin(!!state.admin);
       setAuthStatus("authenticated");
       setLoginPassword("");
       await loadDashboard();
@@ -626,6 +632,7 @@ export default function App() {
     setRuns([]);
     setHealth(null);
     setAuthUser("");
+    setIsAdmin(false);
     setAuthStatus("anonymous");
     setPage("home");
     window.history.replaceState({}, "", location.pathname);
@@ -642,6 +649,7 @@ export default function App() {
           return;
         }
         setAuthUser(state.user || "");
+        setIsAdmin(!!state.admin);
         setAuthStatus("authenticated");
         await loadDashboard();
       } catch (startupError) {
@@ -904,7 +912,11 @@ export default function App() {
                 void refreshRuns();
                 go("history");
               }}
+              onAdmin={isAdmin ? () => go("audit") : undefined}
             />
+          )}
+          {page === "audit" && (
+            <AuditPage onBack={() => go("home")} />
           )}
           {page === "history" && (
             <HistoryPage
@@ -1233,6 +1245,7 @@ function HomePage({
   onCustom,
   onWatch,
   onHistory,
+  onAdmin,
 }: {
   live: View | null;
   elapsed: number;
@@ -1243,6 +1256,7 @@ function HomePage({
   onCustom: () => void;
   onWatch: () => void;
   onHistory: () => void;
+  onAdmin?: () => void;
 }) {
   const solved = live?.challenges.filter((c) => c.status === "accepted").length || 0;
   return (
@@ -1370,7 +1384,200 @@ function HomePage({
           <ArrowRight size={14} />
         </button>
       </section>
+      {onAdmin && (
+        <section className="x-home-foot x-admin-entry">
+          <div>
+            <Shield size={16} />
+            관리자 전용: 누가 언제 어느 IP에서 접속해 어떤 작업을 했는지 확인합니다.
+          </div>
+          <button className="text-button" onClick={onAdmin}>
+            접속 기록 열기
+            <ArrowRight size={14} />
+          </button>
+        </section>
+      )}
     </div>
+  );
+}
+
+const auditSchema = z.array(
+  z.object({
+    at: z.number(),
+    ip: z.string(),
+    country: z.string().optional(),
+    user: z.string(),
+    action: z.string(),
+    detail: z.string().optional(),
+    status: z.number().optional(),
+    agent: z.string().optional(),
+  }),
+);
+type AuditRow = z.infer<typeof auditSchema>[number];
+// 사용자 에이전트 문자열에서 브라우저와 OS만 짧게 뽑는다.
+function deviceLabel(agent = "") {
+  const browser =
+    /Edg\//.test(agent) ? "Edge" : /Chrome\//.test(agent) ? "Chrome" : /Firefox\//.test(agent) ? "Firefox" : /Safari\//.test(agent) ? "Safari" : /curl|python|node/i.test(agent) ? "스크립트" : "기타";
+  const os =
+    /Windows/.test(agent) ? "Windows" : /iPhone|iPad/.test(agent) ? "iOS" : /Android/.test(agent) ? "Android" : /Mac OS/.test(agent) ? "macOS" : /Linux/.test(agent) ? "Linux" : "";
+  return os ? `${browser} · ${os}` : browser;
+}
+function AuditPage({ onBack }: { onBack: () => void }) {
+  const [rows, setRows] = useState<AuditRow[] | null>(null);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  async function load() {
+    setError("");
+    try {
+      const response = await fetch("/api/admin/audit", { cache: "no-store" });
+      const json: unknown = await response.json();
+      if (!response.ok) {
+        const message = z.object({ error: z.string() }).safeParse(json);
+        throw new Error(message.success ? message.data.error : "접속 기록을 불러오지 못했습니다.");
+      }
+      setRows(auditSchema.parse(json));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "접속 기록을 불러오지 못했습니다.");
+    }
+  }
+  useEffect(() => {
+    void load();
+  }, []);
+  const all = rows || [];
+  const needle = query.trim().toLowerCase();
+  const shown = needle
+    ? all.filter((r) =>
+        [r.user, r.ip, r.country, r.action, r.detail].some((v) => v?.toLowerCase().includes(needle)),
+      )
+    : all;
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const recent = all.filter((r) => r.at >= dayAgo);
+  // 접속자별 요약: ID와 IP 조합마다 마지막 접속 시각과 행위 수를 보여준다.
+  const visitors = [
+    ...all
+      .reduce((map, r) => {
+        const key = `${r.user}|${r.ip}`;
+        const item = map.get(key) || { user: r.user, ip: r.ip, country: r.country, last: r.at, count: 0, agent: r.agent };
+        item.count++;
+        item.last = Math.max(item.last, r.at);
+        return map.set(key, item);
+      }, new Map<string, { user: string; ip: string; country?: string; last: number; count: number; agent?: string }>())
+      .values(),
+  ].sort((a, b) => b.last - a.last);
+  const stats = [
+    { label: "최근 24시간 기록", value: recent.length },
+    { label: "최근 24시간 로그인", value: recent.filter((r) => r.action === "로그인").length },
+    { label: "로그인 실패·차단", value: recent.filter((r) => r.action !== "로그인" && r.action.startsWith("로그인")).length },
+    { label: "접속 IP 수", value: new Set(all.map((r) => r.ip)).size },
+  ];
+  return (
+    <section className="x-audit">
+      <header>
+        <div>
+          <span className="eyebrow">관리자</span>
+          <h1>접속 기록</h1>
+          <p>
+            대시보드 로그인과 주요 작업을 시간순으로 보여줍니다. IP는 접속자 주소이고, 국가는 접속 경로에서 확인된
+            경우에만 표시됩니다.
+          </p>
+        </div>
+        <div className="x-audit-actions">
+          <button className="button secondary" onClick={onBack}>
+            메인으로
+          </button>
+          <button className="button primary" onClick={() => void load()}>
+            <RefreshCw size={15} />
+            새로고침
+          </button>
+        </div>
+      </header>
+      {error && (
+        <div className="error-banner" role="alert">
+          <Unplug size={17} />
+          <span>{error}</span>
+        </div>
+      )}
+      <div className="x-audit-stats">
+        {stats.map((s) => (
+          <div key={s.label}>
+            <strong>{s.value.toLocaleString("ko-KR")}</strong>
+            <span>{s.label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="x-audit-grid">
+        <section className="panel">
+          <PanelTitle icon={<Users size={16} />} title="접속자" tail={<span className="count-badge">{visitors.length}</span>} />
+          <ul className="x-visitors">
+            {visitors.slice(0, 40).map((v) => (
+              <li key={`${v.user}|${v.ip}`}>
+                <strong>{v.user}</strong>
+                <code>{v.ip}</code>
+                <small>
+                  {v.country ? `${v.country} · ` : ""}
+                  {deviceLabel(v.agent)} · {v.count}건 · 마지막 {new Date(v.last).toLocaleString("ko-KR")}
+                </small>
+              </li>
+            ))}
+            {!visitors.length && <li className="x-audit-empty">아직 기록이 없습니다.</li>}
+          </ul>
+        </section>
+        <section className="panel">
+          <PanelTitle
+            icon={<Activity size={16} />}
+            title="행위 기록"
+            tail={
+              <input
+                className="x-audit-search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="ID, IP, 행위로 찾기"
+                aria-label="기록 검색"
+              />
+            }
+          />
+          <div className="x-audit-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>시각</th>
+                  <th>ID</th>
+                  <th>IP</th>
+                  <th>국가</th>
+                  <th>행위</th>
+                  <th>대상</th>
+                  <th>기기</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.slice(0, 500).map((r, i) => (
+                  <tr key={`${r.at}-${i}`} className={r.action.startsWith("로그인 ") ? "warn" : ""}>
+                    <td>{new Date(r.at).toLocaleString("ko-KR")}</td>
+                    <td>{r.user}</td>
+                    <td>
+                      <code>{r.ip}</code>
+                    </td>
+                    <td>{r.country || "–"}</td>
+                    <td>
+                      {r.action}
+                      {r.status && r.status >= 400 ? ` (${r.status})` : ""}
+                    </td>
+                    <td>{r.detail || "–"}</td>
+                    <td title={r.agent}>{deviceLabel(r.agent)}</td>
+                  </tr>
+                ))}
+                {rows && !shown.length && (
+                  <tr>
+                    <td colSpan={7} className="x-audit-empty">
+                      조건에 맞는 기록이 없습니다.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
   );
 }
 function StepIcon({ stage, size = 20 }: { stage: ProgressStage; size?: number }) {
@@ -1730,13 +1937,15 @@ function SolveGauge({
       <div className="x-gauge-ring">
         <svg viewBox="0 0 180 180" role="img" aria-label={`전체 ${total}문제 중 ${totals.solved}문제 해결`}>
           <circle cx="90" cy="90" r={r} className="track" />
-          <circle
-            cx="90"
-            cy="90"
-            r={r}
-            className="value"
-            strokeDasharray={`${circumference * ratio} ${circumference}`}
-          />
+          {ratio > 0 && (
+            <circle
+              cx="90"
+              cy="90"
+              r={r}
+              className="value"
+              strokeDasharray={`${circumference * ratio} ${circumference}`}
+            />
+          )}
         </svg>
         <div>
           <strong>{solved}</strong>
