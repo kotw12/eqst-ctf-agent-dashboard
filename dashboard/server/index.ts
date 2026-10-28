@@ -12,6 +12,7 @@ import { Runner } from "./runner.ts";
 import { execute } from "./browser.ts";
 import { mountArena } from "./arena.ts";
 import { DashboardAuth } from "./auth.ts";
+import { AuditLog } from "./audit.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.PORT || 4173);
@@ -69,6 +70,12 @@ const store = new RunStore(
 );
 const runner = new Runner(store);
 const auth = new DashboardAuth();
+const audit = new AuditLog(
+  configuredPath(
+    process.env.EQST_AUDIT_FILE,
+    path.join(path.dirname(configuredPath(process.env.EQST_DATA_DIR, path.join(root, "data", "runs"))), "audit.jsonl"),
+  ),
+);
 const loginSchema = z.object({
   id: z.string().max(64),
   password: z.string().max(256),
@@ -107,6 +114,11 @@ app.get("/api/auth/status", (req, res) => res.json(auth.status(req)));
 app.post("/api/auth/login", (req, res) => {
   const credentials = loginSchema.parse(req.body);
   const result = auth.login(req, res, credentials.id, credentials.password);
+  audit.add(
+    req,
+    credentials.id.slice(0, 64),
+    result.ok ? "로그인" : result.retryAfter ? "로그인 차단" : "로그인 실패",
+  );
   if (!result.ok) {
     if (result.retryAfter)
       res.setHeader("Retry-After", String(result.retryAfter));
@@ -117,13 +129,25 @@ app.post("/api/auth/login", (req, res) => {
     });
     return;
   }
-  res.json({ authenticated: true, user: credentials.id });
+  res.json({ authenticated: true, user: credentials.id, admin: result.admin });
 });
 app.post("/api/auth/logout", (req, res) => {
+  const user = auth.user(req);
+  if (user) audit.add(req, user, "로그아웃");
   auth.logout(req, res);
   res.json({ ok: true });
 });
 app.use("/api", (req, res, next) => auth.require(req, res, next));
+app.use(audit.middleware((req) => auth.user(req)));
+app.get("/api/admin/audit", (req, res) => {
+  const user = auth.user(req);
+  if (!user || !auth.isAdmin(user)) {
+    res.status(403).json({ error: "관리자 계정만 볼 수 있습니다." });
+    return;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  res.json(audit.list());
+});
 app.use("/api", (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "GET" && req.headers["x-seal-live"] !== token) {

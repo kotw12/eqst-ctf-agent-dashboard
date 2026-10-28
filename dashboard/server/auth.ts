@@ -80,7 +80,24 @@ export class DashboardAuth {
 
   status(request: AuthRequest) {
     const session = this.session(request);
-    return { authenticated: !!session, user: session?.user };
+    return {
+      authenticated: !!session,
+      user: session?.user,
+      admin: !!session && this.isAdmin(session.user),
+    };
+  }
+
+  user(request: AuthRequest) {
+    return this.session(request)?.user;
+  }
+
+  // ADMIN_USERS="eqst,..."에 있는 계정만 접속 기록을 볼 수 있다. 기본 관리자는 eqst 하나다.
+  isAdmin(user: string) {
+    const admins = (process.env.ADMIN_USERS || "eqst")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return admins.includes(user);
   }
 
   login(
@@ -137,7 +154,7 @@ export class DashboardAuth {
       "Set-Cookie",
       `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}${this.secureCookie ? "; Secure" : ""}`,
     );
-    return { ok: true, retryAfter: 0 };
+    return { ok: true, retryAfter: 0, admin: this.isAdmin(account!.user) };
   }
 
   logout(request: AuthRequest, response: AuthResponse) {
