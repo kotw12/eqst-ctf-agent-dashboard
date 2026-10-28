@@ -935,9 +935,14 @@ export function active(status: RunStatus) {
 export function toolFamily(command: string): string {
   if (/\bbsk\b|browser|playwright/i.test(command)) return "browser";
   if (/\b(python\d?|sage|node|deno)\b/.test(command)) return "code";
-  if (/\b(curl|wget|nc|ncat|ffuf)\b/.test(command)) return "network";
-  if (/\b(gdb|readelf|objdump|jadx|ghidra|strings|r2)\b/.test(command))
+  // 키는 저장된 기록과 맞추기 위해 "reverse"로 두고, 화면에서는 "보안 분석 도구"로 부른다.
+  if (
+    /\b(gdb|readelf|objdump|nm|ltrace|strace|jadx|apktool|ghidra|strings|r2|radare2|rizin|checksec|ROPgadget|ropper|one_gadget|patchelf|upx|binwalk|foremost|exiftool|steghide|stegseek|zsteg|volatility3?|vol|tshark|xxd|hexdump|john|hashcat|openssl|sqlmap|nmap|gobuster|dirsearch|nikto|hydra)\b/.test(
+      command,
+    )
+  )
     return "reverse";
+  if (/\b(curl|wget|nc|ncat|ffuf)\b/.test(command)) return "network";
   if (/\b(cat|file|rg|ls|find|head|tail|sed)\b/.test(command)) return "inspect";
   return "shell";
 }

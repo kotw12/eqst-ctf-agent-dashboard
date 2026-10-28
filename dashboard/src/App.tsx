@@ -179,7 +179,7 @@ const families: { key: string; label: string; color: string }[] = [
   { key: "network", label: "네트워크 요청", color: "#4590ee" },
   { key: "code", label: "코드 실행", color: "#e0632c" },
   { key: "inspect", label: "파일 확인", color: "#1aa577" },
-  { key: "reverse", label: "리버싱 도구", color: "#c98500" },
+  { key: "reverse", label: "보안 분석 도구", color: "#c98500" },
   { key: "shell", label: "터미널", color: "#e45a9c" },
 ];
 const familyColor = Object.fromEntries(families.map((f) => [f.key, f.color]));
