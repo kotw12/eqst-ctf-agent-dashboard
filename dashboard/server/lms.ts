@@ -19,7 +19,8 @@ export const LMS_PRESETS: LmsPreset[] = [
     title: "EQST Finance · 인터넷 뱅킹",
     course: "Finance & E-commerce Web Hacking",
     exam: "온라인 인터넷 뱅킹 모의해킹",
-    lab: "https://lab.eqst.co.kr:8111",
+    // 테스트에서는 EQST_LMS_LAB 로 mock 실습 서버를 가리킨다
+    lab: process.env.EQST_LMS_LAB || "https://lab.eqst.co.kr:8111",
   },
 ];
 export const lmsPreset = (id: string) => LMS_PRESETS.find((p) => p.id === id);
@@ -119,7 +120,11 @@ async function timedFetch(url: string | URL, init: RequestInit) {
     throw new Error(`${where} 에 연결하지 못했습니다: ${String((error as Error & { cause?: unknown }).cause || error)}`);
   }
 }
-class LoggedOut extends Error {}
+class LoggedOut extends Error {
+  constructor() {
+    super("LMS 로그인 상태가 유지되지 않습니다. 다시 로그인한 뒤에도 같은 응답이 왔습니다.");
+  }
+}
 
 export class LmsClient {
   private jar = new Map<string, string>();
@@ -135,7 +140,13 @@ export class LmsClient {
   }
   async request(
     target: string,
-    init: { method?: string; form?: Record<string, string>; headers?: Record<string, string> } = {},
+    init: {
+      method?: string;
+      form?: Record<string, string>;
+      headers?: Record<string, string>;
+      // 로그인 과정 자체의 요청은 로그인 화면을 만나도 로그아웃으로 보지 않는다
+      loginFlow?: boolean;
+    } = {},
   ): Promise<Reply> {
     let url = new URL(target, this.base).href;
     let method = init.method || "GET";
@@ -166,11 +177,14 @@ export class LmsClient {
         url = new URL(location, url).href;
         method = "GET";
         body = undefined;
-        if (/\/home\/user\/loginForm/.test(url)) throw new LoggedOut();
+        if (/\/home\/user\/loginForm/.test(url) && !init.loginFlow) throw new LoggedOut();
         continue;
       }
       const reply = { url, status: res.status, text: await res.text(), cookies };
-      if (/id="login_pwd"/.test(reply.text) || /"result"\s*:\s*-3\b/.test(reply.text))
+      if (
+        !init.loginFlow &&
+        (/id="login_pwd"/.test(reply.text) || /"result"\s*:\s*-3\b/.test(reply.text))
+      )
         throw new LoggedOut();
       return reply;
     }
@@ -187,7 +201,7 @@ export class LmsClient {
     if (this.failures >= MAX_LOGIN_FAILURES)
       throw new Error("LMS 로그인이 연속 실패해 계정 보호를 위해 더 시도하지 않습니다.");
     this.jar.clear();
-    const page = await this.request("/home/user/loginForm?mcd=HM04001000");
+    const page = await this.request("/home/user/loginForm?mcd=HM04001000", { loginFlow: true });
     const signature = page.text.match(/name="csSignature" value="([^"]+)"/)?.[1];
     const key = page.text.match(/KEYUTIL\.getKey\("([^"]+)"\)/)?.[1]?.replace(/\\n/g, "\n");
     if (!signature || !key) throw new Error("LMS 로그인 화면 구조가 바뀌었습니다.");
@@ -196,11 +210,13 @@ export class LmsClient {
       Buffer.from(Buffer.from(`${this.id}|${this.password}`, "utf8").toString("base64")),
     ).toString("hex");
     try {
-      await this.request("/home/user/login", {
+      const result = await this.request("/home/user/login", {
         method: "POST",
         form: { csSignature: signature, encryptData },
+        loginFlow: true,
       });
-      const home = await this.request("/home/main/indexMain");
+      if (/\/home\/user\/loginForm/.test(result.url)) throw new LoggedOut();
+      const home = await this.request("/home/main/indexMain", { loginFlow: true });
       if (!home.text.includes("/home/user/logout")) throw new LoggedOut();
     } catch (error) {
       this.failures++;
@@ -298,8 +314,14 @@ export class LmsGateway {
         method: "POST",
         headers: { "x-requested-with": "XMLHttpRequest" },
       });
-      const vo = JSON.parse(token.text) as { result: number; message?: string };
-      if (vo.result <= 0 || !vo.message) throw new Error("실습 사이트 토큰을 받지 못했습니다.");
+      let vo: { result: number; message?: string };
+      try {
+        vo = JSON.parse(token.text);
+      } catch {
+        // 로그인이 풀리면 JSON 대신 안내 화면이 올 수 있다. 재로그인 후 한 번만 다시 시도한다.
+        throw new LoggedOut();
+      }
+      if (vo.result <= 0 || !vo.message) throw new LoggedOut();
       const target =
         (no && this.problem(no)?.target) || this.problems.find((p) => p.target)?.target || `${this.preset.lab}/main`;
       const url = new URL(target);
