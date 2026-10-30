@@ -12,6 +12,8 @@ export type LmsPreset = {
   course: string;
   exam: string;
   lab: string;
+  // 실습 사이트에 들어가기까지의 절차(문제 풀이 아님). 실제 사이트에서 확인한 내용만 적는다.
+  guide?: string[];
 };
 export const LMS_PRESETS: LmsPreset[] = [
   {
@@ -21,6 +23,15 @@ export const LMS_PRESETS: LmsPreset[] = [
     exam: "인터넷 뱅킹 모의해킹",
     // 테스트에서는 EQST_LMS_LAB 로 mock 실습 서버를 가리킨다
     lab: process.env.EQST_LMS_LAB || "https://lab.eqst.co.kr:8111",
+    // 2026-10-30 실제 실습 사이트에서 가입·로그인·문제 화면 진입까지 확인한 절차
+    guide: [
+      "세션 유지: lab-cookie 값은 시작 세션일 뿐이다. 실습 사이트는 로그인할 때 SMTMBANKSESSIONID 를 새로 발급하므로 Cookie 헤더를 고정하지 말고 응답의 Set-Cookie 로 계속 갱신해(예: python requests.Session 에 lab-cookie 값을 넣고 그 세션만 사용). 아래 단계는 모두 같은 세션에서 순서대로 해야 한다.",
+      "요청 암호화(e2e_data): GET /security/eqstastx 로 {p,g,db}(16진수)를 받고, 무작위 a 로 POST /security/lethergo da=hex(g^a mod p) 를 보낸 뒤 keyword=hex(db^a mod p) 를 만든다. e2e_data 는 CryptoJS.AES.encrypt(평문, keyword).toString() 과 같다(OpenSSL 'Salted__' 형식, EVP_BytesToKey MD5, AES-256-CBC, base64). 키 교환은 암호화 요청을 보내기 직전에 같은 세션에서 한다.",
+      "보안프로그램 확인: 브라우저에서는 PC의 EQST Sign 프로그램(localhost:14060)이 하는 단계다. 로그인 전에 같은 세션으로 POST /sign/checksecuritysolution solutionmsg=<로컬 IP(예: 192.168.0.10)를 AES-128-CBC 로 암호화한 base64, key=IV='eqstsignkey' 를 0으로 채운 16바이트, PKCS7> 를 보내 {\"result\":\"Y\"} 를 확인해. 이 단계를 빼면 로그인은 성공해도 이후 모든 화면이 HTTP 500 '잘못된 접근입니다'가 된다.",
+      "회원가입: GET /sign/signupagreement/check?terms=Y&privacy=Y → GET /sign/signupuserinfo → 키 교환 → POST /sign/idoverlapcheck e2e_data=enc('<아이디>:') ({\"result\":\"N\"} 이면 사용 가능) → POST /sign/signupprocess e2e_data=enc(base64(encodeURIComponent(이름)) + ':' + 아이디 + ':' + 비밀번호 + ':' + 계좌비밀번호4자리 + ':' + PIN6자리). 이름 한글 2~4자, 아이디 [A-Za-z0-9+] 6~15자, 비밀번호 8~20자(대문자·소문자·숫자·특수문자 포함).",
+      "로그인: GET /sign/loginmenu → 보안프로그램 확인 → 키 교환 → POST /sign/dologin e2e_data=enc('<아이디>:<비밀번호>') → {\"result\":\"Y\"}. 이후 /main, /practice/practice<번호> 가 HTTP 200 으로 열리면 접속 완료다.",
+      "계정: 이번 실행용 실습 계정을 하나 만들어 아이디·비밀번호를 작업폴더 NOTES 에 적고 재사용해. 문제 설명이 아이디 규칙을 정하면(예: '<LMS 아이디>+p3') 그 문제에서만 따른다. LMS 아이디와 같은 이름의 기존 실습 계정은 사용자 소유이니 로그인 시도하지 마.",
+    ],
   },
 ];
 export const lmsPreset = (id: string) => LMS_PRESETS.find((p) => p.id === id);
