@@ -11,6 +11,8 @@ export type MockOptions = {
   password?: string;
   sessionTtlMs?: number;
   problems?: MockProblem[];
+  // issue: sToken 응답에서 세션을 준다(뱅킹 실습). bind: 첫 방문에서 세션을 주고 sToken 은 그 세션에 인증만 붙인다(쇼핑몰 실습).
+  labStyle?: "issue" | "bind";
 };
 const SIGNATURE = "mock-signature==";
 const COURSE = "Finance & E-commerce Web Hacking";
@@ -176,6 +178,24 @@ export async function startMockLms(options: MockOptions = {}) {
   const lab = http.createServer((req, res) => {
     const url = new URL(req.url || "/", "http://lab");
     const token = url.searchParams.get("sToken");
+    if (options.labStyle === "bind") {
+      const sid = cookieOf(req, "EQSTORESESSIONID");
+      if (!sid) {
+        const fresh = randomBytes(12).toString("hex");
+        return redirect(res, "/forbidden", { "set-cookie": `EQSTORESESSIONID=${fresh}; Path=/; Secure; HttpOnly` });
+      }
+      if (token) {
+        const expires = tokens.get(token);
+        tokens.delete(token);
+        if (!expires || expires < Date.now()) return redirect(res, "/forbidden");
+        labSessions.add(sid);
+        url.searchParams.delete("sToken");
+        return redirect(res, url.pathname);
+      }
+      const no = url.pathname.match(/^\/practice\/practice(\d+)$/)?.[1];
+      if (no && labSessions.has(sid)) return html(res, `문제 ${no}번. EQSTORE`);
+      return redirect(res, "/forbidden");
+    }
     if (token) {
       const expires = tokens.get(token);
       tokens.delete(token);

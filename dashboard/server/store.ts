@@ -20,7 +20,7 @@ export function redact(value: string, limit = 12000): string {
   const secret = process.env.EQST_LMS_PW;
   return (secret && secret.length >= 4 ? value.split(secret).join("[REDACTED]") : value)
     .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
-    .replace(/\b((?:SMTMBANKSESSIONID|JSESSIONID|LOGINID)=)[^;\s"']+/g, "$1[REDACTED]")
+    .replace(/\b((?:SMTMBANKSESSIONID|EQSTORESESSIONID|JSESSIONID|LOGINID)=)[^;\s"']+/g, "$1[REDACTED]")
     .replace(/([?&]sToken=)[^&\s"']+/g, "$1[REDACTED]")
     .replace(/\b(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, "$1[REDACTED]")
     .replace(
