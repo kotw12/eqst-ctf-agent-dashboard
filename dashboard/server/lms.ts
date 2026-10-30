@@ -30,7 +30,7 @@ export const LMS_PRESETS: LmsPreset[] = [
       "보안프로그램 확인: 브라우저에서는 PC의 EQST Sign 프로그램(localhost:14060)이 하는 단계다. 로그인 전에 같은 세션으로 POST /sign/checksecuritysolution solutionmsg=<로컬 IP(예: 192.168.0.10)를 AES-128-CBC 로 암호화한 base64, key=IV='eqstsignkey' 를 0으로 채운 16바이트, PKCS7> 를 보내 {\"result\":\"Y\"} 를 확인해. 이 단계를 빼면 로그인은 성공해도 이후 모든 화면이 HTTP 500 '잘못된 접근입니다'가 된다.",
       "회원가입: GET /sign/signupagreement/check?terms=Y&privacy=Y → GET /sign/signupuserinfo → 키 교환 → POST /sign/idoverlapcheck e2e_data=enc('<아이디>:') ({\"result\":\"N\"} 이면 사용 가능) → POST /sign/signupprocess e2e_data=enc(base64(encodeURIComponent(이름)) + ':' + 아이디 + ':' + 비밀번호 + ':' + 계좌비밀번호4자리 + ':' + PIN6자리). 이름 한글 2~4자, 아이디 [A-Za-z0-9+] 6~15자, 비밀번호 8~20자(대문자·소문자·숫자·특수문자 포함).",
       "로그인: GET /sign/loginmenu → 보안프로그램 확인 → 키 교환 → POST /sign/dologin e2e_data=enc('<아이디>:<비밀번호>') → {\"result\":\"Y\"}. 이후 /main, /practice/practice<번호> 가 HTTP 200 으로 열리면 접속 완료다.",
-      "계정: 이번 실행용 실습 계정을 하나 만들어 아이디·비밀번호를 작업폴더 NOTES 에 적고 재사용해. 문제 설명이 아이디 규칙을 정하면(예: '<LMS 아이디>+p3') 그 문제에서만 따른다. LMS 아이디와 같은 이름의 기존 실습 계정은 사용자 소유이니 로그인 시도하지 마.",
+      "계정: 이번 실행용 실습 계정을 하나 만들어 아이디·비밀번호를 작업폴더 NOTES 에 적고 재사용해. 문제 설명의 '자신의 ID'는 이번에 가입한 실습 계정 아이디다. 가입하면 '<가입한 아이디>p3' 문제용 계정이 자동으로 생긴다(중복 확인으로 확인됨, 비밀번호 규칙은 확인하지 않음). LMS 아이디로 시작하는 기존 실습 계정(예: '<LMS 아이디>', '<LMS 아이디>p3')은 사용자 소유이니 로그인 시도하지 마.",
     ],
   },
 ];
