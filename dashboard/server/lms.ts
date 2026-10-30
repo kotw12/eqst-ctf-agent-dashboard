@@ -33,6 +33,19 @@ export const LMS_PRESETS: LmsPreset[] = [
       "계정: 이번 실행용 실습 계정을 하나 만들어 아이디·비밀번호를 작업폴더 NOTES 에 적고 재사용해. 문제 설명의 '자신의 ID'는 이번에 가입한 실습 계정 아이디다. 가입하면 '<가입한 아이디>p3' 문제용 계정이 자동으로 생긴다(중복 확인으로 확인됨, 비밀번호 규칙은 확인하지 않음). LMS 아이디로 시작하는 기존 실습 계정(예: '<LMS 아이디>', '<LMS 아이디>p3')은 사용자 소유이니 로그인 시도하지 마.",
     ],
   },
+  {
+    id: "eqst-ecommerce-shop",
+    title: "EQST E-commerce · 쇼핑몰",
+    course: "Finance & E-commerce Web Hacking",
+    exam: "쇼핑몰 모의해킹",
+    lab: process.env.EQST_SHOP_LAB || "https://lab.eqst.co.kr:8110",
+    // 2026-10-30 실제 실습 사이트(EQSTORE)에서 확인한 내용
+    guide: [
+      "세션 유지: 실습 사이트 세션 쿠키는 EQSTORESESSIONID 다. lab-cookie 값은 시작 세션일 뿐이니 Cookie 헤더를 고정하지 말고 응답의 Set-Cookie 로 계속 갱신해(예: python requests.Session 에 lab-cookie 값을 넣고 그 세션만 사용). 실습 사이트가 /forbidden 으로 보내면 sToken 세션이 끝난 것이니 lab-cookie 를 다시 받아.",
+      "로그인이 필요한 화면은 /member/login 으로 이동한다. 로그인 폼은 POST /member/login (memberid, password, 화면의 hidden _csrf) 이고, 회원가입은 /member/signinfo 화면에서 시작한다. 폼마다 화면에 있는 _csrf 값을 그대로 함께 보낸다.",
+      "계정: 이번 실행용 실습 계정을 하나 만들어 아이디·비밀번호를 작업폴더 NOTES 에 적고 재사용해. LMS 아이디로 된 기존 실습 계정은 사용자 소유이니 로그인 시도하지 마.",
+    ],
+  },
 ];
 export const lmsPreset = (id: string) => LMS_PRESETS.find((p) => p.id === id);
 export const lmsConfigured = () =>
@@ -339,18 +352,26 @@ export class LmsGateway {
       const url = new URL(target);
       if (url.origin !== new URL(this.preset.lab).origin)
         throw new Error("프리셋 밖의 실습 주소입니다.");
+      // 쇼핑몰 실습처럼 첫 방문에서 세션을 주고 sToken 은 그 세션에 인증만 붙이는 사이트가 있어,
+      // 먼저 토큰 없이 들러 세션을 받은 뒤 같은 세션으로 sToken 을 보낸다.
+      const jar = new Map<string, string>();
+      const keep = (res: Response) => {
+        for (const line of res.headers.getSetCookie()) {
+          const pair = line.split(";")[0];
+          const at = pair.indexOf("=");
+          if (at > 0) jar.set(pair.slice(0, at).trim(), pair.slice(at + 1));
+        }
+      };
+      const header = () => [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+      keep(await timedFetch(new URL("/", url.origin), { redirect: "manual", headers: { "user-agent": UA } }));
       url.searchParams.set("sToken", vo.message);
       const res = await timedFetch(url, {
         redirect: "manual",
-        headers: { "user-agent": UA },
+        headers: { "user-agent": UA, ...(jar.size ? { cookie: header() } : {}) },
       });
-      const cookie = res.headers
-        .getSetCookie()
-        .map((line) => line.split(";")[0])
-        .filter((pair) => pair.includes("="))
-        .join("; ");
-      if (!cookie) throw new Error(`실습 사이트가 세션을 주지 않았습니다 (HTTP ${res.status}).`);
-      return { cookie, origin: url.origin };
+      keep(res);
+      if (!jar.size) throw new Error(`실습 사이트가 세션을 주지 않았습니다 (HTTP ${res.status}).`);
+      return { cookie: header(), origin: url.origin };
     });
   }
   async submit(no: number, answer: string): Promise<SubmitResult> {

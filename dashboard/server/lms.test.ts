@@ -48,6 +48,23 @@ test("mock LMS: 실습 쿠키로 문제 화면이 열린다", () =>
     assert.equal(anonymous.headers.get("location"), "/error");
   }));
 
+test("mock LMS: 첫 방문에서 세션을 주고 sToken 은 인증만 붙이는 실습 사이트도 쿠키를 받는다", async () => {
+  const mock = await startMockLms({ labStyle: "bind" });
+  try {
+    const gateway = new LmsGateway(
+      { id: "mock", title: "Mock", course: "Finance & E-commerce Web Hacking", exam: "인터넷 뱅킹 모의해킹", lab: mock.lab },
+      new LmsClient(mock.account.id, mock.account.password, mock.base),
+    );
+    await gateway.open();
+    const { cookie } = await gateway.labCookie(1);
+    assert.match(cookie, /^EQSTORESESSIONID=/);
+    const page = await fetch(`${mock.lab}/practice/practice1`, { headers: { cookie }, redirect: "manual" });
+    assert.equal(page.status, 200);
+  } finally {
+    await mock.close();
+  }
+});
+
 test("mock LMS: 안 푼 문제는 LMS 판정, 이미 푼 문제는 LMS 제출 없이 기존 정답과 대조한다", () =>
   withMock(async ({ mock, gateway }) => {
     await gateway.open();
