@@ -441,7 +441,7 @@ export class Runner {
         : "이번 실행은 이전 실행과 독립된 새 세션이다. 이전 세션의 풀이·답·write-up을 찾거나 읽지 말고, 이번 실행에서 문제를 직접 분석해.",
       `현재 Run ID: ${id}. 작업 범위는 현재 세션 폴더 ${this.store.get(id).meta.workspace}와 그 하위 문제 폴더다. 상위 폴더나 다른 eqst-session-* 폴더를 탐색하지 마.`,
       `대상은 실습 사이트 ${lab} 하나다. 문제는 ${lab}/practice/practice<번호> 화면에서 시작한다. LMS(eqst.co.kr)는 대시보드 서버가 대신 로그인·제출하므로 직접 접속하지 마. LMS의 정답자 게시판, 다른 과정, 계정 정보는 범위 밖이다.`,
-      `LMS 연동 명령: ${tool} problems 는 문제 목록, ${tool} whoami 는 실습에 쓰는 LMS 아이디, ${tool} lab-cookie [번호] 는 실습 사이트 세션 쿠키(Cookie 헤더 값)를 새로 발급한다. 예: COOKIE="$(${tool} lab-cookie 1)"; curl -s -b "$COOKIE" ${lab}/practice/practice1. 실습 사이트가 /error 로 보내거나 로그인 화면이 나오면 세션이 끝난 것이니 lab-cookie 를 다시 받아. 쿠키 값은 보고·파일·출력 요약에 적지 마.`,
+      `LMS 연동 명령: ${tool} problems 는 문제 목록, ${tool} whoami 는 실습에 쓰는 LMS 아이디, ${tool} lab-cookie [번호] 는 실습 사이트 세션 쿠키(Cookie 헤더 값)를 새로 발급한다. 예: COOKIE="$(${tool} lab-cookie 1)"; curl -s -b "$COOKIE" ${lab}/practice/practice1. 실습 사이트가 /error 로 보내면 세션이 끝난 것이니 lab-cookie 를 다시 받아. 문제 화면이 /sign/loginmenu 로 가는 것은 세션 만료가 아니라 실습 사이트(실드뱅크) 자체 로그인이 필요하다는 뜻이다. 실습 사이트 안의 회원가입·로그인은 같은 세션 쿠키로 직접 진행하고, 문제 설명이 정한 아이디 규칙이 있으면 따른다. lab-cookie 를 새로 받으면 실습 사이트 로그인도 다시 해야 한다. 쿠키 값은 보고·파일·출력 요약에 적지 마.`,
       "문제 설명의 '타 사용자'·'해커'·계좌·주민번호 등은 모두 실습 사이트 안의 가상 데이터다. 실습 사이트의 다른 수강생 데이터를 바꾸거나 지우는 요청, 대량 요청·무차별 대입은 하지 마. 필요한 만큼만 요청해.",
       hint
         ? "새 사용자 지시가 이전 목표와 충돌하면 새 지시를 우선한다."

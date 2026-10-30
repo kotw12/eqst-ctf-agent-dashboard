@@ -18,7 +18,7 @@ export const LMS_PRESETS: LmsPreset[] = [
     id: "eqst-finance-bank",
     title: "EQST Finance · 인터넷 뱅킹",
     course: "Finance & E-commerce Web Hacking",
-    exam: "온라인 인터넷 뱅킹 모의해킹",
+    exam: "인터넷 뱅킹 모의해킹",
     // 테스트에서는 EQST_LMS_LAB 로 mock 실습 서버를 가리킨다
     lab: process.env.EQST_LMS_LAB || "https://lab.eqst.co.kr:8111",
   },
@@ -98,8 +98,9 @@ export function parsePaper(html: string): Paper {
       no,
       title: text(block.match(/<div class="quest">([\s\S]*?)<\/div>/)?.[1] || `문제 ${no}`),
       description: text(block.match(/<div class="exam_area">([\s\S]*?)<\/div>/)?.[1] || ""),
-      points: Number(block.match(/배점[\s\S]*?:\s*([\d.]+)\s*점/)?.[1]) || undefined,
-      level: block.match(/난이도\s*:\s*([^\s<&|]+)/)?.[1],
+      // 계정 언어에 따라 "배점: 7.0 점" 또는 "Points<!-- 배점 -->: 7.0" 으로 나온다.
+      points: Number(block.match(/class="score">[^:]*?:\s*([\d.]+)/)?.[1]) || undefined,
+      level: block.match(/(?:난이도|Level|Difficulty)\s*:\s*([^\s<&|]+)/)?.[1],
       target: block.match(/openPracticeSite\('url',\s*\d+,\s*'([^']+)'/)?.[1],
       qstnSn,
       solved,

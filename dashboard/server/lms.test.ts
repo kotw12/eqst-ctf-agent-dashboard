@@ -12,7 +12,7 @@ async function withMock(
     id: "mock",
     title: "Mock",
     course: "Finance & E-commerce Web Hacking",
-    exam: "온라인 인터넷 뱅킹 모의해킹",
+    exam: "인터넷 뱅킹 모의해킹",
     lab: mock.lab,
   };
   try {
@@ -113,6 +113,9 @@ test("문제지에서 문제 목록과 제출 폼을 읽고, 기존 정답은 an
   assert.equal(paper.answers.get(2), "ANSWER2");
   assert.equal(paper.answers.has(1), false);
   assert.ok(!JSON.stringify(paper.problems).includes("ANSWER"));
+  // 영문 계정에서는 배점이 "Points<!-- 배점 -->: 8.0" 으로 나온다
+  const english = parsePaper(html.replace("배점<!-- 배점 -->: 7.0 점", "Points<!-- 배점 -->: 8.0"));
+  assert.equal(english.problems[0].points, 8);
 });
 
 test("대시보드 문제 이름과 번호를 서로 바꾼다", () => {

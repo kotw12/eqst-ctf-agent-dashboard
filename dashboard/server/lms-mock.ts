@@ -144,8 +144,8 @@ export async function startMockLms(options: MockOptions = {}) {
       case "/lec/exam/examMain":
         if (session!.course !== "CE_FIN") return html(res, "잘못된 접근입니다.");
         return html(res, `<input type="hidden" name="csSignature" value="${SIGNATURE}" />
-          온라인 쇼핑몰 모의해킹 <button onclick="examPaper('SHOP==','999','7')">응시하기</button>
-          온라인 인터넷 뱅킹 모의해킹 <button onclick="examPaper('BANK==','999','4')">응시하기</button>`);
+          <label class="online">Online</label> <h4>쇼핑몰 모의해킹</h4> <button onclick="examPaper('SHOP==','999','7')">응시하기</button>
+          <label class="online">Online</label> <h4>인터넷 뱅킹 모의해킹</h4> <button onclick="examPaper('BANK==','999','4')">응시하기</button>`);
       case "/lec/exam/examPaperStareCnt": {
         const form = await readForm(req);
         if (form.encExamSn !== "BANK==") return json(res, { result: -1 });
