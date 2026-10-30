@@ -39,6 +39,8 @@ export const configSchema = z.object({
   browserId: z.string().max(100),
   maxMinutes: z.number().int().min(1).max(180),
   demo: z.boolean(),
+  // 서버에 정의된 대회 프리셋 id. 비어 있으면 대회 주소를 직접 쓴다.
+  preset: z.string().max(40).default(""),
 });
 export type RunConfig = z.infer<typeof configSchema>;
 export const metaSchema = z.object({

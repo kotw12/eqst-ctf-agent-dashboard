@@ -96,7 +96,25 @@ const initial: RunConfig = {
   browserId: "",
   maxMinutes: 30,
   demo: false,
+  preset: "",
 };
+const presetSchema = z.array(
+  z.object({ id: z.string(), title: z.string(), lab: z.string(), ready: z.boolean() }),
+);
+type Preset = z.infer<typeof presetSchema>[number];
+function presetConfig(preset: Preset): RunConfig {
+  return {
+    ...initial,
+    preset: preset.id,
+    title: preset.title,
+    url: preset.lab,
+    maxMinutes: 120,
+    prompt:
+      "실습 사이트의 문제를 번호 순으로 하나씩 직접 풀어. 현재 문제와 확인된 단서를 짧게 설명하면서 진행하고, 정답 판정을 받으면 다음 문제로 넘어가.",
+    rules:
+      "실습 사이트와 lms-tool 만 사용. LMS 직접 접속·정답자 게시판·외부 write-up과 정답 검색 금지. 대량 요청·무차별 대입 금지.",
+  };
+}
 const demoConfig: RunConfig = {
   ...initial,
   title: "EQST CTF",
@@ -459,7 +477,8 @@ function LoginScreen({
 export default function App() {
   const [view, setView] = useState<View | null>(null),
     [health, setHealth] = useState<Health | null>(null),
-    [runs, setRuns] = useState<RunHistory>([]);
+    [runs, setRuns] = useState<RunHistory>([]),
+    [presets, setPresets] = useState<Preset[]>([]);
   const [page, setPage] = useState<Page>("home");
   const [setup, setSetup] = useState(false),
     [form, setForm] = useState<RunConfig>(demoConfig);
@@ -580,6 +599,7 @@ export default function App() {
       go(requestedPage === "history" || requestedPage === "audit" ? requestedPage : "home");
     }
     setHealth(healthSchema.parse(await api("/api/health")));
+    setPresets(presetSchema.parse(await api("/api/presets")));
   }
   async function submitLogin(e: FormEvent) {
     e.preventDefault();
@@ -1023,10 +1043,31 @@ export default function App() {
           )}
           <div className="setup-grid">
             <div className="setup-main">
+              {!form.demo && presets.length > 0 && (
+                <label>
+                  대회
+                  <select
+                    value={form.preset}
+                    onChange={(e) => {
+                      const preset = presets.find((p) => p.id === e.target.value);
+                      setForm(preset ? presetConfig(preset) : { ...initial });
+                    }}
+                  >
+                    <option value="">직접 입력</option>
+                    {presets.map((p) => (
+                      <option key={p.id} value={p.id} disabled={!p.ready}>
+                        {p.title}
+                        {p.ready ? "" : " (서버 계정 미설정)"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label>
                 대회 이름
                 <input
                   required
+                  disabled={!!form.preset}
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   placeholder="예: EQST CTF"
@@ -1066,7 +1107,7 @@ export default function App() {
                   required
                   type="url"
                   value={form.url}
-                  disabled={form.demo}
+                  disabled={form.demo || !!form.preset}
                   onChange={(e) => setForm({ ...form, url: e.target.value })}
                   placeholder="https://ctf.example.com"
                 />

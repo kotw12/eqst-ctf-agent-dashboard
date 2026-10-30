@@ -13,6 +13,7 @@ import { execute } from "./browser.ts";
 import { mountArena } from "./arena.ts";
 import { DashboardAuth } from "./auth.ts";
 import { AuditLog } from "./audit.ts";
+import { LMS_PRESETS, lmsConfigured, lmsPreset } from "./lms.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.PORT || 4173);
@@ -181,6 +182,11 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 app.get("/api/runs", (_req, res) => res.json(store.list()));
+app.get("/api/presets", (_req, res) =>
+  res.json(
+    LMS_PRESETS.map((p) => ({ id: p.id, title: p.title, lab: p.lab, ready: lmsConfigured() })),
+  ),
+);
 app.post("/api/runs", (req, res) => {
   const config = configSchema.parse(req.body);
   // 이 배포에는 브라우저 도구(BSK)가 없으므로 브라우저 연결을 끄고, SEAL은 항상 --yolo로 실행한다
@@ -195,6 +201,21 @@ app.post("/api/runs", (req, res) => {
       .status(409)
       .json({ error: "한 번에 하나의 SEAL만 실행할 수 있습니다." });
     return;
+  }
+  if (config.preset) {
+    // 프리셋 대회는 서버에 정의된 실습 주소만 쓰고, LMS 계정은 서버 환경변수에서만 읽는다
+    const preset = lmsPreset(config.preset);
+    if (!preset) {
+      res.status(400).json({ error: "알 수 없는 대회 프리셋입니다." });
+      return;
+    }
+    if (!lmsConfigured()) {
+      res.status(400).json({ error: "서버에 LMS 계정(EQST_LMS_ID / EQST_LMS_PW)이 설정되지 않았습니다." });
+      return;
+    }
+    config.demo = false;
+    config.title = preset.title;
+    config.url = preset.lab;
   }
   if (config.demo) {
     // 로컬 데모는 같은 Pod의 EQST HAL 포털로 고정한다
