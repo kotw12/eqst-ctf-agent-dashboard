@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LmsClient, LmsGateway, parsePaper, problemName, problemNo, type LmsPreset } from "./lms.ts";
+import { LMS_PRESETS, LmsClient, LmsGateway, parsePaper, problemName, problemNo, type LmsPreset } from "./lms.ts";
 import { startMockLms } from "./lms-mock.ts";
 
 async function withMock(
@@ -140,4 +140,13 @@ test("대시보드 문제 이름과 번호를 서로 바꾼다", () => {
   assert.equal(name, "12. XSS(1)");
   assert.equal(problemNo(name), 12);
   assert.equal(problemNo("XSS"), undefined);
+});
+
+test("저장된 실행 설정은 대회 프리셋 안에서 id 가 겹치지 않고 제출할 문제 번호를 목표에 적는다", () => {
+  const ids = LMS_PRESETS.flatMap((p) => [p.id, ...(p.runs ?? []).map((r) => `${p.id}:${r.id}`)]);
+  assert.equal(new Set(ids).size, ids.length);
+  const shop9 = LMS_PRESETS.find((p) => p.id === "eqst-ecommerce-shop")?.runs?.find((r) => r.id === "p9");
+  assert.ok(shop9);
+  assert.match(shop9.prompt, /lms-tool submit 9\b/);
+  assert.equal(shop9.submissionMode, "auto");
 });

@@ -14,6 +14,16 @@ export type LmsPreset = {
   lab: string;
   // 실습 사이트에 들어가기까지의 절차(문제 풀이 아님). 실제 사이트에서 확인한 내용만 적는다.
   guide?: string[];
+  // 대회 목록에 따로 보이는 저장된 실행 설정(특정 문제만 풀기 등). 실제 실행으로 검증한 것만 넣는다.
+  runs?: LmsRunPreset[];
+};
+export type LmsRunPreset = {
+  id: string;
+  title: string;
+  prompt: string;
+  effort: "low" | "medium" | "high" | "xhigh" | "max";
+  maxMinutes: number;
+  submissionMode: "auto" | "manual" | "off";
 };
 export const LMS_PRESETS: LmsPreset[] = [
   {
@@ -44,6 +54,18 @@ export const LMS_PRESETS: LmsPreset[] = [
       "세션 유지: 실습 사이트 세션 쿠키는 EQSTORESESSIONID 다. lab-cookie 값은 시작 세션일 뿐이니 Cookie 헤더를 고정하지 말고 응답의 Set-Cookie 로 계속 갱신해(예: python requests.Session 에 lab-cookie 값을 넣고 그 세션만 사용). 실습 사이트가 /forbidden 으로 보내면 sToken 세션이 끝난 것이니 lab-cookie 를 다시 받아.",
       "로그인이 필요한 화면은 /member/login 으로 이동한다. 로그인 폼은 POST /member/login (memberid, password, 화면의 hidden _csrf) 이고, 회원가입은 /member/signinfo 화면에서 시작한다. 폼마다 화면에 있는 _csrf 값을 그대로 함께 보낸다.",
       "계정: 이번 실행용 실습 계정을 하나 만들어 아이디·비밀번호를 작업폴더 NOTES 에 적고 재사용해. LMS 아이디로 된 기존 실습 계정은 사용자 소유이니 로그인 시도하지 마.",
+    ],
+    runs: [
+      {
+        // 2026-10-30 운영 실행 706b83cb 에서 이 설정으로 약 8분 만에 정답 판정 확인
+        id: "p9",
+        title: "EQST E-commerce · 쇼핑몰 9번 (파라미터 변조(3))",
+        prompt:
+          "9번 문제(파라미터 변조(3))만 풀어. 실습 사이트에서 근거를 확인해 답을 얻으면 lms-tool submit 9 로 제출해 판정을 확인하고, 다른 문제는 건드리지 말고 결과를 요약한 뒤 종료해.",
+        effort: "max",
+        maxMinutes: 60,
+        submissionMode: "auto",
+      },
     ],
   },
 ];
