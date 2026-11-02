@@ -99,22 +99,41 @@ const initial: RunConfig = {
   preset: "",
 };
 const presetSchema = z.array(
-  z.object({ id: z.string(), title: z.string(), lab: z.string(), ready: z.boolean() }),
+  z.object({
+    id: z.string(),
+    // 저장된 실행 설정은 id 가 따로 있고 preset 이 실제 대회 프리셋을 가리킨다
+    preset: z.string(),
+    title: z.string(),
+    lab: z.string(),
+    ready: z.boolean(),
+    prompt: z.string().optional(),
+    effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+    maxMinutes: z.number().optional(),
+    submissionMode: z.enum(["auto", "manual", "off"]).optional(),
+  }),
 );
 type Preset = z.infer<typeof presetSchema>[number];
 function presetConfig(preset: Preset): RunConfig {
   return {
     ...initial,
-    preset: preset.id,
+    preset: preset.preset,
     title: preset.title,
     url: preset.lab,
-    maxMinutes: 120,
+    maxMinutes: preset.maxMinutes ?? 120,
+    effort: preset.effort ?? initial.effort,
+    submissionMode: preset.submissionMode ?? initial.submissionMode,
     prompt:
+      preset.prompt ??
       "실습 사이트의 문제를 번호 순으로 하나씩 직접 풀어. 현재 문제와 확인된 단서를 짧게 설명하면서 진행하고, 정답 판정을 받으면 다음 문제로 넘어가.",
     rules:
       "실습 사이트와 lms-tool 만 사용. LMS 직접 접속·정답자 게시판·외부 write-up과 정답 검색 금지. 대량 요청·무차별 대입 금지.",
   };
 }
+// 폼 내용으로 지금 선택된 대회 목록 항목을 찾는다(저장된 실행 설정은 목표 문구까지 같아야 함)
+const selectedPreset = (presets: Preset[], form: RunConfig) =>
+  presets.find((p) => p.prompt && p.preset === form.preset && p.prompt === form.prompt)?.id ??
+  presets.find((p) => !p.prompt && p.preset === form.preset)?.id ??
+  "";
 const demoConfig: RunConfig = {
   ...initial,
   title: "EQST CTF",
@@ -1047,7 +1066,7 @@ export default function App() {
                 <label>
                   대회
                   <select
-                    value={form.preset}
+                    value={selectedPreset(presets, form)}
                     onChange={(e) => {
                       const preset = presets.find((p) => p.id === e.target.value);
                       setForm(preset ? presetConfig(preset) : { ...initial });

@@ -184,7 +184,16 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/runs", (_req, res) => res.json(store.list()));
 app.get("/api/presets", (_req, res) =>
   res.json(
-    LMS_PRESETS.map((p) => ({ id: p.id, title: p.title, lab: p.lab, ready: lmsConfigured() })),
+    LMS_PRESETS.flatMap((p) => [
+      { id: p.id, preset: p.id, title: p.title, lab: p.lab, ready: lmsConfigured() },
+      ...(p.runs ?? []).map(({ id, ...run }) => ({
+        ...run,
+        id: `${p.id}:${id}`,
+        preset: p.id,
+        lab: p.lab,
+        ready: lmsConfigured(),
+      })),
+    ]),
   ),
 );
 app.post("/api/runs", (req, res) => {
