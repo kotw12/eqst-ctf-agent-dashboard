@@ -1,0 +1,25 @@
+{
+  "challenges": [
+    {
+      "id": "hidden_game",
+      "name": "The Hidden Game",
+      "category": "steganography",
+      "description": "한 보안 연구원이 흥미로운 PDF 파일을 발견했습니다. 이 파일은 완벽하게 작동하는 테트리스 게임이 구현된 PDF입니다. 하지만 이 파일에는 단순한 게임 이상의 무언가가 숨겨져 있다는 소문이 돌고 있습니다.\n\n\"아케이드 게임의 황금기를 추억하며 만든 작품입니다. 하지만 진정한 게이머라면 게임 너머의 메시지를 발견할 수 있을 것입니다.\"\n- 제작자 메모\n\n파일명: PDFtris_v1.337.pdf\n비밀번호: 1337\n\n플래그 형식 ACDC{ ... }",
+      "points": 500,
+      "flag_sha256": "4b0d65b94d1650121b434f1f25ab242c0517911780e23dadb3bea992e1a8e1fa",
+      "scope": "test",
+      "protocol": "file",
+      "port": null,
+      "target": null,
+      "status": "file-only",
+      "reason": "첨부 파일 분석 문제(실행 서비스 없음)",
+      "attachments": [
+        {
+          "name": "PDFtris_v1.337.pdf",
+          "url": "/files/hidden_game/PDFtris_v1.337.pdf",
+          "file": "hidden_game/PDFtris_v1.337.pdf"
+        }
+      ]
+    }
+  ]
+}
