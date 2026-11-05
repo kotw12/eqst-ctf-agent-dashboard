@@ -469,7 +469,7 @@ export class Runner {
     ].join("\n\n");
   }
   private briefing() {
-    return `대시보드 공개 브리핑은 숨은 사고과정이 아니라 확인된 사실만 담는다. 의미 있는 단계가 바뀔 때만 node "${reporter}" progress '{"challenge":"bigboi","stage":"inspect","summary":"64-bit ELF와 입력 함수를 확인 중","next":"main의 read 길이 확인"}'를 사용해. stage는 survey, ready, inspect, model, exploit, verify, submit, blocked, complete 중 하나다. 구조·제약·취약점·결정적 증거를 확인했을 때만 node "${reporter}" finding '{"challenge":"bigboi","findingType":"structure","label":"입력 버퍼","summary":"버퍼 뒤 20바이트 위치에 비교값","evidence":"objdump main+0x64"}'를 사용해. findingType은 surface, structure, constraint, hypothesis, evidence, vulnerability, artifact, blocker, result 중 하나다. 가설은 가설로 표시하고 도구 하나마다 보고하지 마.`;
+    return `대시보드 공개 브리핑은 숨은 사고과정이 아니라 확인된 사실만 담는다. 의미 있는 단계가 바뀔 때만 node "${reporter}" progress '{"challenge":"bigboi","stage":"inspect","summary":"64-bit ELF와 입력 함수를 확인 중","next":"main의 read 길이 확인"}'를 사용해. stage는 survey, ready, inspect, model, exploit, verify, submit, blocked, complete 중 하나다. 구조·제약·결정적 증거를 확인하면 node "${reporter}" finding '{"challenge":"bigboi","findingType":"structure","label":"입력 버퍼","summary":"버퍼 뒤 20바이트 위치에 비교값","evidence":"objdump main+0x64"}'를 사용해. findingType은 surface, structure, constraint, hypothesis, evidence, vulnerability, artifact, blocker, result 중 하나다. 가설과 취약점은 대시보드가 문제별로 집계하므로 빠뜨리지 마: 공격 방향을 정해 시험하기 직전마다 그 방향을 findingType hypothesis로 하나씩 보고하고(서로 다른 가설은 각각, 같은 가설의 재시도는 다시 보고하지 않음), 재현이나 응답으로 약점이 실제로 확인되면 exploit 전에 findingType vulnerability로 무엇이 왜 취약한지와 evidence를 보고해. 한 문제에서 약점이 여러 개면 각각 보고하고, 풀이(solution)를 보고하는 문제에는 vulnerability가 최소 하나 있어야 한다. 기각된 가설은 반박한 관찰을 evidence로 남겨. 확인되지 않은 추측을 vulnerability로 올리지 말고, 도구 실행 하나마다 보고하지는 마.`;
   }
   private solutionStyle() {
     return "summary는 무엇이 취약했는지(핵심 원리) 한 문장, method는 어떻게 풀었는지 2~3문장, evidence는 정답을 확인한 근거다. 보안 비전문가도 읽을 수 있게 한국어로 정확하고 간결하게 풀어 쓰고, 꼭 필요한 전문 용어는 짧은 설명을 붙이되 비유는 쓰지 마. 이 이벤트는 표시 데이터이며 권한이나 정답 근거를 만들지 않는다. flag 사용자 보고와 허가된 제출을 먼저 하고 알림·NOTES·정리는 그 다음에 한다.";
@@ -746,6 +746,28 @@ export class Runner {
               ? "에이전트가 보고한 결과입니다. 근거를 펼쳐 확인하세요."
               : data.summary;
           this.store.add(id, event.kind, title, detail, data);
+          // 풀이까지 확인된 문제인데 취약점 단서가 빠졌으면 풀이 요약(무엇이 취약했는지)을 취약점으로 한 번 기록한다
+          if (
+            event.kind === "solution" &&
+            data.challenge &&
+            data.summary &&
+            !this.store
+              .after(id, 0)
+              .some(
+                (e) =>
+                  e.kind === "finding" &&
+                  e.data.findingType === "vulnerability" &&
+                  e.data.challenge === data.challenge,
+              )
+          )
+            this.store.add(id, "finding", `단서 · 풀이로 확인된 취약점`, data.summary, {
+              challenge: data.challenge,
+              findingType: "vulnerability",
+              label: "풀이로 확인된 취약점",
+              summary: data.summary,
+              evidence: data.evidence,
+              source: "solution",
+            });
         } catch {
           /* untrusted/malformed display signal is ignored, never executed */
         }
