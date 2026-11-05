@@ -4,6 +4,8 @@
 
 운영·유지보수 담당자는 [인수인계 핸드아웃](MAINTAINER-HANDOFF.md)에서 구조, 인증, 도구 설치, 갱신·복구 절차를 확인한다.
 
+EQSTHAL 포털·문제 서버까지 Pod 하나에 올리는 현재 운영 구성은 [deploy/runpod/README.md](deploy/runpod/README.md)의 절차로 새 Pod를 만든다.
+
 ## 전제
 
 - Ubuntu x86-64 CPU Pod, Node.js 22.19 이상과 npm, Git, **native Codex CLI**가 설치된 같은 OS 사용자. Codex 설치 버전은 이 배포물이 고정하지 않습니다.
